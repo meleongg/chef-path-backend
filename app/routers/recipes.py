@@ -1,0 +1,18 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models import Recipe
+from app.schemas import RecipeResponse
+
+router = APIRouter()
+
+
+@router.get("/recipe/{recipe_id}", response_model=RecipeResponse)
+async def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
+    """Get recipe details by ID"""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
+        )
+    return recipe
