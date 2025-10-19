@@ -43,17 +43,12 @@ async def submit_feedback(
 
     return progress
 
-
-@router.get("/progress", response_model=ProgressSummary)
-async def get_progress(
-    user_id: int = Query(..., description="User ID"), db: Session = Depends(get_db)
-):
-    """Get user progress summary"""
+@router.get("/progress/{user_id}", response_model=ProgressSummary)
+async def get_progress_path(user_id: int, db: Session = Depends(get_db)):
+    """Get user progress summary (path version)"""
     summary = plan_service.get_progress_summary(user_id, db)
-
     if not summary:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
-
     return ProgressSummary(**summary)

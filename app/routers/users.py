@@ -4,6 +4,8 @@ from typing import List
 from app.database import get_db
 from app.models import User
 from app.schemas import UserCreate, UserUpdate, UserResponse
+from app.services.weekly_plan import WeeklyPlanService
+import asyncio
 
 router = APIRouter()
 
@@ -28,6 +30,20 @@ async def create_or_update_user(user_data: UserCreate, db: Session = Depends(get
         db.add(user)
         db.commit()
         db.refresh(user)
+
+        # Generate first weekly plan and initialize progress
+        plan_service = WeeklyPlanService()
+        # Only generate for week 1
+
+        # If running in an async context, use await; otherwise, run loop
+        try:
+            loop = asyncio.get_running_loop()
+            plan = await plan_service.generate_weekly_plan(user, 1, db)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            plan = loop.run_until_complete(plan_service.generate_weekly_plan(user, 1, db))
+
         return user
 
 

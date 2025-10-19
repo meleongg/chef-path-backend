@@ -27,13 +27,12 @@ from app.services.weekly_plan import WeeklyPlanService
 
 
 async def seed_database(clear_first: bool = False):
-    """Seed database with sample data"""
-    print("🌱 Seeding ChefPath Database...")
+    """Seed database with only the Test user and a weekly plan"""
+    print("🌱 Seeding ChefPath Database with Test user...")
 
     # Clear database if requested
     if clear_first:
         from scripts.clear_database import clear_database
-
         print("Clearing existing data first...")
         clear_database()
 
@@ -44,102 +43,104 @@ async def seed_database(clear_first: bool = False):
     db = Session(bind=engine)
 
     # Initialize services
-    meal_service = TheMealDBService()
     plan_service = WeeklyPlanService()
 
     try:
-        # Create sample users
-        print("\n👥 Creating sample users...")
-        sample_users = [
+        # Create only the Test user (with id=5)
+        print("\n� Creating Test user...")
+        test_user = User(
+            id=5,
+            name="Test",
+            cuisine="Chinese",
+            frequency=3,
+            skill_level="beginner",
+            course_duration=8,
+            created_at=datetime(2025, 9, 29, 2, 42, 52, tzinfo=timezone.utc),
+        )
+        db.add(test_user)
+        db.commit()
+        db.refresh(test_user)
+        print(f"  ✅ Created Test user: {test_user.name} (ID: {test_user.id})")
+
+        # Manually create mock Chinese recipes
+        print(f"\n🍽️  Creating mock Chinese recipes...")
+        mock_recipes_data = [
             {
-                "name": "Alice Johnson",
-                "cuisine": "Italian",
-                "frequency": 3,
-                "skill_level": "beginner",
-                "course_duration": 8,
-            },
-            {
-                "name": "Bob Chen",
+                "external_id": "1001",
+                "name": "Mock Sweet and Sour Pork",
                 "cuisine": "Chinese",
-                "frequency": 4,
-                "skill_level": "intermediate",
-                "course_duration": 12,
+                "ingredients": '["pork", "pineapple", "bell pepper", "vinegar", "sugar"]',
+                "instructions": "1. Fry pork. 2. Add sauce. 3. Serve.",
+                "difficulty": "easy",
+                "tags": '["pork", "sweet", "sour"]',
+                "image_url": "https://example.com/sweet_sour_pork.jpg",
             },
             {
-                "name": "Carol Martinez",
-                "cuisine": "Mexican",
-                "frequency": 2,
-                "skill_level": "advanced",
-                "course_duration": 6,
+                "external_id": "1002",
+                "name": "Mock Kung Pao Chicken",
+                "cuisine": "Chinese",
+                "ingredients": '["chicken", "peanuts", "chili peppers", "soy sauce"]',
+                "instructions": "1. Stir fry chicken. 2. Add peanuts and sauce. 3. Serve.",
+                "difficulty": "medium",
+                "tags": '["chicken", "spicy"]',
+                "image_url": "https://example.com/kung_pao_chicken.jpg",
             },
             {
-                "name": "David Smith",
-                "cuisine": "American",
-                "frequency": 5,
-                "skill_level": "beginner",
-                "course_duration": 10,
+                "external_id": "1003",
+                "name": "Mock Mapo Tofu",
+                "cuisine": "Chinese",
+                "ingredients": '["tofu", "ground pork", "chili bean paste", "green onion"]',
+                "instructions": "1. Cook pork. 2. Add tofu and sauce. 3. Simmer.",
+                "difficulty": "easy",
+                "tags": '["tofu", "spicy", "vegetarian"]',
+                "image_url": "https://example.com/mapo_tofu.jpg",
             },
         ]
-
-        created_users = []
-        for user_data in sample_users:
-            user = User(**user_data)
-            db.add(user)
+        recipes = []
+        for recipe_data in mock_recipes_data:
+            recipe = Recipe(**recipe_data)
+            db.add(recipe)
             db.commit()
-            db.refresh(user)
-            created_users.append(user)
-            print(f"  ✅ Created user: {user.name} (ID: {user.id})")
+            db.refresh(recipe)
+            recipes.append(recipe)
+        print(f"    ✅ Added {len(recipes)} mock Chinese recipes")
 
-        # Generate some recipes by fetching from TheMealDB
-        print(f"\n🍽️  Fetching sample recipes from TheMealDB...")
-        cuisines = ["Italian", "Chinese", "Mexican", "American"]
-        all_recipes = []
-
-        for cuisine in cuisines:
-            print(f"  - Fetching {cuisine} recipes...")
-            try:
-                recipes = await meal_service.get_recipes_for_user(
-                    cuisine.lower(), "beginner", 3, db
-                )
-                all_recipes.extend(recipes)
-                print(f"    ✅ Added {len(recipes)} {cuisine} recipes")
-            except Exception as e:
-                print(f"    ⚠️  Could not fetch {cuisine} recipes: {e}")
-
-        print(f"  📊 Total recipes in database: {db.query(Recipe).count()}")
-
-        # Generate weekly plans for each user
-        print(f"\n📅 Generating weekly plans...")
-        for user in created_users:
-            try:
-                # Generate first 2 weeks for each user
-                for week in [1, 2]:
-                    plan = await plan_service.generate_weekly_plan(user, week, db)
-                    print(f"  ✅ Generated week {week} plan for {user.name}")
-
-                # Simulate some progress for demonstration
-                if user.name == "Alice Johnson":
-                    # Mark some recipes as completed for Alice
-                    progress_entries = (
-                        db.query(UserRecipeProgress)
-                        .filter(
-                            UserRecipeProgress.user_id == user.id,
-                            UserRecipeProgress.week_number == 1,
-                        )
-                        .limit(2)
-                        .all()
+        # Generate week 1 plan for Test user
+        print(f"\n📅 Generating week 1 plan for Test user...")
+        plan = await plan_service.generate_weekly_plan(test_user, 1, db)
+        # Update the plan's recipe_ids to include the mock recipe IDs
+        if recipes and plan:
+            recipe_ids = [recipe.id for recipe in recipes]
+            plan.recipe_ids = str(recipe_ids)
+            db.commit()
+            print(f"  ✅ Updated week 1 plan with recipe_ids: {recipe_ids}")
+            # Seed UserRecipeProgress for each recipe in the weekly plan
+            print(f"\n📝 Seeding UserRecipeProgress records...")
+            for i, recipe in enumerate(recipes):
+                if i == 0:
+                    # Mark first recipe as completed with feedback
+                    progress = UserRecipeProgress(
+                        user_id=test_user.id,
+                        recipe_id=recipe.id,
+                        week_number=1,
+                        status="completed",
+                        feedback="just_right",
+                        completed_at=datetime.now(timezone.utc)
                     )
-
-                    for progress in progress_entries:
-                        setattr(progress, "status", "completed")
-                        setattr(progress, "feedback", "just_right")
-                        setattr(progress, "completed_at", datetime.now(timezone.utc))
-
-                    db.commit()
-                    print(f"  ✅ Simulated progress for {user.name}")
-
-            except Exception as e:
-                print(f"  ⚠️  Could not generate plans for {user.name}: {e}")
+                else:
+                    # Others as not started
+                    progress = UserRecipeProgress(
+                        user_id=test_user.id,
+                        recipe_id=recipe.id,
+                        week_number=1,
+                        status="not_started",
+                        feedback=None,
+                        completed_at=None
+                    )
+                db.add(progress)
+            db.commit()
+            print(f"  ✅ Seeded progress records for recipes: {recipe_ids}")
+        print(f"  ✅ Generated week 1 plan for Test user")
 
         # Display summary
         print(f"\n📊 Database seeding complete! Summary:")
@@ -148,13 +149,11 @@ async def seed_database(clear_first: bool = False):
         print(f"  - Weekly Plans: {db.query(WeeklyPlan).count()}")
         print(f"  - Progress Entries: {db.query(UserRecipeProgress).count()}")
 
-        # Show sample data
-        print(f"\n👥 Sample Users:")
-        users = db.query(User).all()
-        for user in users:
-            print(
-                f"  - {user.name} (ID: {user.id}) - {getattr(user, 'cuisine')} cuisine, {getattr(user, 'skill_level')} level"
-            )
+        # Show Test user data
+        print(f"\n� Test User:")
+        print(
+            f"  - {test_user.name} (ID: {test_user.id}) - {test_user.cuisine} cuisine, {test_user.skill_level} level"
+        )
 
         return True
 
@@ -163,7 +162,6 @@ async def seed_database(clear_first: bool = False):
         db.rollback()
         return False
     finally:
-        await meal_service.close()
         await plan_service.close()
         db.close()
 
