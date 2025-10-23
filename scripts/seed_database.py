@@ -55,7 +55,7 @@ async def seed_database(clear_first: bool = False):
             cuisine="Chinese",
             frequency=3,
             skill_level="beginner",
-            course_duration=8,
+            user_goal="Master a Cuisine",
             created_at=datetime(2025, 9, 29, 2, 42, 52, tzinfo=timezone.utc),
         )
         db.add(test_user)

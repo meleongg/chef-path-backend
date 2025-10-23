@@ -46,9 +46,7 @@ class WeeklyPlanService:
         if len(completed_recipes) == len(week_recipes) and len(week_recipes) > 0:
             # All recipes completed, move to next week
             next_week = getattr(latest_progress, "week_number") + 1
-            return min(
-                next_week, getattr(user, "course_duration")
-            )  # Don't exceed course duration
+            return next_week  # One-week-at-a-time, no course duration limit
         else:
             # Still working on current week
             return getattr(latest_progress, "week_number")
@@ -173,20 +171,18 @@ class WeeklyPlanService:
         if completed_count == len(current_week_progress):
             # Unlock next week
             next_week = current_week + 1
-            if next_week <= getattr(user, "course_duration"):
-                next_plan = (
-                    db.query(WeeklyPlan)
-                    .filter(
-                        WeeklyPlan.user_id == user.id,
-                        WeeklyPlan.week_number == next_week,
-                    )
-                    .first()
+            next_plan = (
+                db.query(WeeklyPlan)
+                .filter(
+                    WeeklyPlan.user_id == user.id,
+                    WeeklyPlan.week_number == next_week,
                 )
-
-                if next_plan:
-                    setattr(next_plan, "is_unlocked", True)
-                    db.commit()
-                    return True
+                .first()
+            )
+            if next_plan:
+                setattr(next_plan, "is_unlocked", True)
+                db.commit()
+                return True
 
         return False
 
