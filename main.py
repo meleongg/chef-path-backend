@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_tables
-from app.routers import users, recipes, weekly_plans, feedback
+from app.routers import users, recipes, weekly_plans, feedback, auth
 
 
 @asynccontextmanager
@@ -30,6 +30,7 @@ app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(recipes.router, prefix="/api", tags=["recipes"])
 app.include_router(weekly_plans.router, prefix="/api", tags=["weekly-plans"])
 app.include_router(feedback.router, prefix="/api", tags=["feedback"])
+app.include_router(auth.router)
 
 
 @app.get("/")
