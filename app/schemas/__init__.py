@@ -9,15 +9,21 @@ class UserCreate(BaseModel):
     cuisine: str = Field(..., min_length=1, max_length=50)
     frequency: int = Field(..., ge=1, le=7)  # 1-7 meals per week
     skill_level: str = Field(..., pattern="^(beginner|intermediate|advanced)$")
-    user_goal: str = Field(..., description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc.")
+    user_goal: str = Field(
+        ..., description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc."
+    )
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     cuisine: Optional[str] = Field(None, min_length=1, max_length=50)
     frequency: Optional[int] = Field(None, ge=1, le=7)
-    skill_level: Optional[str] = Field(None, pattern="^(beginner|intermediate|advanced)$")
-    user_goal: Optional[str] = Field(None, description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc.")
+    skill_level: Optional[str] = Field(
+        None, pattern="^(beginner|intermediate|advanced)$"
+    )
+    user_goal: Optional[str] = Field(
+        None, description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc."
+    )
 
 
 class UserResponse(BaseModel):

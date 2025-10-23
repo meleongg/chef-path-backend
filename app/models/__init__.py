@@ -22,8 +22,12 @@ class User(Base):
     cuisine = Column(String(50), nullable=False)  # preferred cuisine
     frequency = Column(Integer, nullable=False)  # meals per week
     skill_level = Column(String(20), nullable=False)  # beginner, intermediate, advanced
-    user_goal = Column(String, nullable=False)  # e.g., "Learn New Techniques", "Master a Cuisine", etc.
-    hashed_password = Column(String, nullable=False)  # Store hashed password for authentication
+    user_goal = Column(
+        String, nullable=False
+    )  # e.g., "Learn New Techniques", "Master a Cuisine", etc.
+    hashed_password = Column(
+        String, nullable=False
+    )  # Store hashed password for authentication
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

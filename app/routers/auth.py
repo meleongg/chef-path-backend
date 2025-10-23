@@ -12,6 +12,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(username: str, password: str, db: Session = Depends(get_db)):
     # Check if user already exists
@@ -19,11 +20,20 @@ def register_user(username: str, password: str, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")
     hashed_pw = hash_password(password)
-    user = User(name=username, hashed_password=hashed_pw, cuisine="", frequency=1, skill_level="beginner", user_goal="", created_at=datetime.now(timezone.utc))
+    user = User(
+        name=username,
+        hashed_password=hashed_pw,
+        cuisine="",
+        frequency=1,
+        skill_level="beginner",
+        user_goal="",
+        created_at=datetime.now(timezone.utc),
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
     return {"msg": "User registered successfully"}
+
 
 @router.post("/login")
 def login_user(username: str, password: str, db: Session = Depends(get_db)):

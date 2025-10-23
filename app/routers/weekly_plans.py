@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import json
 from typing import List
 from app.database import get_db
+from app.utils.auth import get_current_user
 from app.models import User, Recipe, WeeklyPlan
 from app.schemas import WeeklyPlanResponse, RecipeResponse
 from app.services.weekly_plan import WeeklyPlanService
@@ -16,6 +17,7 @@ async def get_weekly_plan(
     user_id: int = Query(..., description="User ID"),
     week_number: int = Query(None, description="Specific week number (optional)"),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Get current week's recipes for a user"""
     user = db.query(User).filter(User.id == user_id).first()
@@ -50,7 +52,9 @@ async def get_weekly_plan(
 
 
 @router.get("/weekly-plan/{user_id}/all", response_model=List[WeeklyPlanResponse])
-async def get_all_weekly_plans(user_id: int, db: Session = Depends(get_db)):
+async def get_all_weekly_plans(
+    user_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)
+):
     """Get all weekly plans for a user (for progress tracking)"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

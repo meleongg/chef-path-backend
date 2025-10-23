@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.utils.auth import get_current_user
 from app.schemas import FeedbackCreate, UserRecipeProgressResponse, ProgressSummary
 from app.services.weekly_plan import WeeklyPlanService
 from app.models import UserRecipeProgress
@@ -16,6 +17,7 @@ async def submit_feedback(
     user_id: int,
     feedback_data: FeedbackCreate,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Log recipe completion and feedback (path version)"""
     success = plan_service.process_feedback(
@@ -43,7 +45,9 @@ async def submit_feedback(
 
 
 @router.get("/progress/{user_id}", response_model=ProgressSummary)
-async def get_progress_path(user_id: int, db: Session = Depends(get_db)):
+async def get_progress_path(
+    user_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)
+):
     """Get user progress summary (path version)"""
     summary = plan_service.get_progress_summary(user_id, db)
     if not summary:
@@ -58,7 +62,10 @@ async def get_progress_path(user_id: int, db: Session = Depends(get_db)):
     response_model=List[UserRecipeProgressResponse],
 )
 async def get_weekly_progress(
-    user_id: int, week_number: int, db: Session = Depends(get_db)
+    user_id: int,
+    week_number: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """Get all recipe progress for a user in a specific week"""
 
