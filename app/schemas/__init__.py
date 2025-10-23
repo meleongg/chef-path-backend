@@ -2,6 +2,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+# Auth schemas
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 # User schemas
 class UserCreate(BaseModel):

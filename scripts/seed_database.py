@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
+
 sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,7 @@ from app.database import engine, create_tables
 from app.models import User, Recipe, WeeklyPlan, UserRecipeProgress
 from app.services.themealdb import TheMealDBService
 from app.services.weekly_plan import WeeklyPlanService
+from app.utils.password import hash_password
 
 
 async def seed_database(clear_first: bool = False):
@@ -52,6 +54,7 @@ async def seed_database(clear_first: bool = False):
         test_user = User(
             id=5,
             name="Test",
+            hashed_password=hash_password("testpassword"),  # Set a known password for login testing
             cuisine="Chinese",
             frequency=3,
             skill_level="beginner",

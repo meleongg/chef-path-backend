@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.utils.password import hash_password, verify_password
+from app.schemas import LoginRequest
 from jose import jwt
 from datetime import datetime, timedelta, timezone
 
@@ -36,9 +37,9 @@ def register_user(username: str, password: str, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login_user(username: str, password: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.name == username).first()
-    if not user or not verify_password(password, user.hashed_password):
+def login_user(data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.name == data.username).first()
+    if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"user_id": user.id, "exp": expire}
