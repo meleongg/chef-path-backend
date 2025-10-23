@@ -33,6 +33,7 @@ async def seed_database(clear_first: bool = False):
     # Clear database if requested
     if clear_first:
         from scripts.clear_database import clear_database
+
         print("Clearing existing data first...")
         clear_database()
 
@@ -125,7 +126,7 @@ async def seed_database(clear_first: bool = False):
                         week_number=1,
                         status="completed",
                         feedback="just_right",
-                        completed_at=datetime.now(timezone.utc)
+                        completed_at=datetime.now(timezone.utc),
                     )
                 else:
                     # Others as not started
@@ -135,7 +136,7 @@ async def seed_database(clear_first: bool = False):
                         week_number=1,
                         status="not_started",
                         feedback=None,
-                        completed_at=None
+                        completed_at=None,
                     )
                 db.add(progress)
             db.commit()

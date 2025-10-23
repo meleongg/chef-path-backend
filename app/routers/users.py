@@ -42,7 +42,9 @@ async def create_or_update_user(user_data: UserCreate, db: Session = Depends(get
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            plan = loop.run_until_complete(plan_service.generate_weekly_plan(user, 1, db))
+            plan = loop.run_until_complete(
+                plan_service.generate_weekly_plan(user, 1, db)
+            )
 
         return user
 

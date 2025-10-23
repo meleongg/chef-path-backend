@@ -1,20 +1,23 @@
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import FeedbackCreate, UserRecipeProgressResponse, ProgressSummary
 from app.services.weekly_plan import WeeklyPlanService
+from app.models import UserRecipeProgress
+from app.models import UserRecipeProgress
 
 router = APIRouter()
 plan_service = WeeklyPlanService()
 
 
-@router.post("/feedback", response_model=UserRecipeProgressResponse)
+@router.post("/feedback/{user_id}", response_model=UserRecipeProgressResponse)
 async def submit_feedback(
+    user_id: int,
     feedback_data: FeedbackCreate,
-    user_id: int = Query(..., description="User ID"),
     db: Session = Depends(get_db),
 ):
-    """Log recipe completion and feedback"""
+    """Log recipe completion and feedback (path version)"""
     success = plan_service.process_feedback(
         user_id,
         feedback_data.recipe_id,
@@ -22,15 +25,11 @@ async def submit_feedback(
         feedback_data.feedback,
         db,
     )
-
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Recipe progress not found"
         )
-
     # Return updated progress
-    from app.models import UserRecipeProgress
-
     progress = (
         db.query(UserRecipeProgress)
         .filter(
@@ -40,8 +39,8 @@ async def submit_feedback(
         )
         .first()
     )
-
     return progress
+
 
 @router.get("/progress/{user_id}", response_model=ProgressSummary)
 async def get_progress_path(user_id: int, db: Session = Depends(get_db)):
@@ -52,3 +51,23 @@ async def get_progress_path(user_id: int, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
     return ProgressSummary(**summary)
+
+
+@router.get(
+    "/progress/{user_id}/week/{week_number}",
+    response_model=List[UserRecipeProgressResponse],
+)
+async def get_weekly_progress(
+    user_id: int, week_number: int, db: Session = Depends(get_db)
+):
+    """Get all recipe progress for a user in a specific week"""
+
+    progress_records = (
+        db.query(UserRecipeProgress)
+        .filter(
+            UserRecipeProgress.user_id == user_id,
+            UserRecipeProgress.week_number == week_number,
+        )
+        .all()
+    )
+    return progress_records
