@@ -2,6 +2,16 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+# Registration request/response schemas
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    name: str
+
+class RegisterResponse(BaseModel):
+    success: bool
+    message: str
+
 # Auth schemas
 class LoginRequest(BaseModel):
     username: str
@@ -39,8 +49,18 @@ class UserResponse(BaseModel):
     user_goal: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
+    
+    model_config = {"from_attributes": True}
+
+
+# Token response for login
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+    model_config = {"from_attributes": True}
 
 
 # Recipe schemas
@@ -56,8 +76,7 @@ class RecipeResponse(BaseModel):
     image_url: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # Weekly Plan schemas
@@ -70,8 +89,7 @@ class WeeklyPlanResponse(BaseModel):
     is_unlocked: bool
     recipes: List[RecipeResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # Feedback schemas
@@ -90,8 +108,6 @@ class UserRecipeProgressResponse(BaseModel):
     feedback: Optional[str]
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
 
 
 # Progress summary schema

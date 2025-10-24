@@ -45,8 +45,8 @@ async def get_weekly_plan(
     recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
 
     # Create response with recipes
-    plan_response = WeeklyPlanResponse.from_orm(plan)
-    plan_response.recipes = [RecipeResponse.from_orm(recipe) for recipe in recipes]
+    plan_response = WeeklyPlanResponse.model_validate(plan)
+    plan_response.recipes = [RecipeResponse.model_validate(recipe) for recipe in recipes]
 
     return plan_response
 
@@ -70,8 +70,8 @@ async def get_all_weekly_plans(
         recipe_ids = json.loads(getattr(plan, "recipe_ids"))
         recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
 
-        plan_response = WeeklyPlanResponse.from_orm(plan)
-        plan_response.recipes = [RecipeResponse.from_orm(recipe) for recipe in recipes]
+        plan_response = WeeklyPlanResponse.model_validate(plan)
+        plan_response.recipes = [RecipeResponse.model_validate(recipe) for recipe in recipes]
         response_plans.append(plan_response)
 
     return response_plans

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.utils.password import hash_password, verify_password
-from app.schemas import LoginRequest
+from app.schemas import LoginRequest, TokenResponse, UserResponse, RegisterRequest, RegisterResponse
 from jose import jwt
 from datetime import datetime, timedelta, timezone
 
@@ -14,15 +14,15 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register_user(username: str, password: str, db: Session = Depends(get_db)):
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     # Check if user already exists
-    existing_user = db.query(User).filter(User.name == username).first()
+    existing_user = db.query(User).filter(User.name == data.username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    hashed_pw = hash_password(password)
+        return RegisterResponse(success=False, message="Username already registered")
+    hashed_pw = hash_password(data.password)
     user = User(
-        name=username,
+        name=data.name,
         hashed_password=hashed_pw,
         cuisine="",
         frequency=1,
@@ -33,10 +33,10 @@ def register_user(username: str, password: str, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"msg": "User registered successfully"}
+    return RegisterResponse(success=True, message="User registered successfully")
 
 
-@router.post("/login")
+@router.post("/login", response_model=TokenResponse)
 def login_user(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.name == data.username).first()
     if not user or not verify_password(data.password, user.hashed_password):
@@ -44,4 +44,5 @@ def login_user(data: LoginRequest, db: Session = Depends(get_db)):
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"user_id": user.id, "exp": expire}
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    return {"access_token": token, "token_type": "bearer"}
+    user_resp = UserResponse.model_validate(user)
+    return {"access_token": token, "token_type": "bearer", "user": user_resp}
