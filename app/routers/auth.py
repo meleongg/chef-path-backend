@@ -33,7 +33,11 @@ def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    return RegisterResponse(success=True, message="User registered successfully")
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {"user_id": user.id, "exp": expire}
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    user_resp = UserResponse.model_validate(user)
+    return RegisterResponse(success=True, message="User registered successfully", access_token=token, user=user_resp)
 
 
 @router.post("/login", response_model=TokenResponse)

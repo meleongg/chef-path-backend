@@ -2,16 +2,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
-# Registration request/response schemas
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    name: str
-
-class RegisterResponse(BaseModel):
-    success: bool
-    message: str
-
 # Auth schemas
 class LoginRequest(BaseModel):
     username: str
@@ -50,9 +40,18 @@ class UserResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-    
-    model_config = {"from_attributes": True}
 
+# Registration request/response schemas
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    name: str
+
+class RegisterResponse(BaseModel):
+    success: bool
+    message: str
+    access_token: Optional[str] = None
+    user: Optional['UserResponse'] = None
 
 # Token response for login
 class TokenResponse(BaseModel):
