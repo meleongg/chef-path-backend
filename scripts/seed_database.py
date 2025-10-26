@@ -53,7 +53,9 @@ async def seed_database(clear_first: bool = False):
         print("\n� Creating Test user...")
         test_user = User(
             id=5,
-            name="Test",
+            first_name="First",
+            last_name="Last",
+            email="test@gmail.com",
             hashed_password=hash_password("testpassword"),  # Set a known password for login testing
             cuisine="Chinese",
             frequency=3,
@@ -64,7 +66,7 @@ async def seed_database(clear_first: bool = False):
         db.add(test_user)
         db.commit()
         db.refresh(test_user)
-        print(f"  ✅ Created Test user: {test_user.name} (ID: {test_user.id})")
+        print(f"  ✅ Created Test user: {test_user.email} (ID: {test_user.id})")
 
         # Manually create mock Chinese recipes
         print(f"\n🍽️  Creating mock Chinese recipes...")
@@ -156,7 +158,7 @@ async def seed_database(clear_first: bool = False):
         # Show Test user data
         print(f"\n� Test User:")
         print(
-            f"  - {test_user.name} (ID: {test_user.id}) - {test_user.cuisine} cuisine, {test_user.skill_level} level"
+            f"  - {test_user.email} (ID: {test_user.id}) - {test_user.cuisine} cuisine, {test_user.skill_level} level"
         )
 
         return True

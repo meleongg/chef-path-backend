@@ -117,7 +117,7 @@ def view_database_summary(db: Session):
             )
 
             print(
-                f"  - {user.name}: {getattr(user, 'cuisine')} cuisine, "
+                f"  - {user.email}: {getattr(user, 'cuisine')} cuisine, "
                 f"{getattr(user, 'skill_level')} level, "
                 f"{completed_count}/{progress_count} recipes completed "
                 f"({completion_rate:.1f}%)"
