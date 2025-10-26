@@ -11,21 +11,18 @@ import asyncio
 router = APIRouter()
 
 
-@router.post("/user", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_or_update_user(
+@router.put("/user/profile", response_model=UserResponse, status_code=status.HTTP_200_OK)
+async def update_user_profile(
     user_data: UserCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Create or update user profile"""
-    # Always update the authenticated user's profile
+    """Update the authenticated user's profile after onboarding"""
     user = db.query(User).filter(User.id == current_user.id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    # Only update allowed fields (not name)
     for field, value in user_data.model_dump(exclude_unset=True).items():
-        if field != "name":
-            setattr(user, field, value)
+        setattr(user, field, value)
     db.commit()
     db.refresh(user)
     return user
