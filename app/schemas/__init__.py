@@ -9,7 +9,6 @@ class LoginRequest(BaseModel):
 
 # User schemas
 class UserCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
     cuisine: str = Field(..., min_length=1, max_length=50)
     frequency: int = Field(..., ge=1, le=7)  # 1-7 meals per week
     skill_level: str = Field(..., pattern="^(beginner|intermediate|advanced)$")
@@ -19,7 +18,6 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
     cuisine: Optional[str] = Field(None, min_length=1, max_length=50)
     frequency: Optional[int] = Field(None, ge=1, le=7)
     skill_level: Optional[str] = Field(
