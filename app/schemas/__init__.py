@@ -4,7 +4,7 @@ from datetime import datetime
 
 # Auth schemas
 class LoginRequest(BaseModel):
-    username: str
+    email: str
     password: str
 
 # User schemas
@@ -30,7 +30,9 @@ class UserUpdate(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    name: str
+    email: str
+    first_name: str
+    last_name: str
     cuisine: str
     frequency: int
     skill_level: str
@@ -41,9 +43,10 @@ class UserResponse(BaseModel):
 
 # Registration request/response schemas
 class RegisterRequest(BaseModel):
-    username: str
+    email: str
     password: str
-    name: str
+    first_name: str
+    last_name: str
 
 class RegisterResponse(BaseModel):
     success: bool
