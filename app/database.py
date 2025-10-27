@@ -1,8 +1,13 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models import Base
+from dotenv import load_dotenv
+import os
 
-DATABASE_URL = "sqlite:///./database.db"
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
