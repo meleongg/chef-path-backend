@@ -46,7 +46,9 @@ async def get_weekly_plan(
 
     # Create response with recipes
     plan_response = WeeklyPlanResponse.model_validate(plan)
-    plan_response.recipes = [RecipeResponse.model_validate(recipe) for recipe in recipes]
+    plan_response.recipes = [
+        RecipeResponse.model_validate(recipe) for recipe in recipes
+    ]
 
     return plan_response
 
@@ -71,7 +73,9 @@ async def get_all_weekly_plans(
         recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
 
         plan_response = WeeklyPlanResponse.model_validate(plan)
-        plan_response.recipes = [RecipeResponse.model_validate(recipe) for recipe in recipes]
+        plan_response.recipes = [
+            RecipeResponse.model_validate(recipe) for recipe in recipes
+        ]
         response_plans.append(plan_response)
 
     return response_plans

@@ -56,7 +56,9 @@ async def seed_database(clear_first: bool = False):
             first_name="First",
             last_name="Last",
             email="test@gmail.com",
-            hashed_password=hash_password("testpassword"),  # Set a known password for login testing
+            hashed_password=hash_password(
+                "testpassword"
+            ),  # Set a known password for login testing
             cuisine="Chinese",
             frequency=3,
             skill_level="beginner",

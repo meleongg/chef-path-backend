@@ -11,7 +11,9 @@ import asyncio
 router = APIRouter()
 
 
-@router.put("/user/profile", response_model=UserResponse, status_code=status.HTTP_200_OK)
+@router.put(
+    "/user/profile", response_model=UserResponse, status_code=status.HTTP_200_OK
+)
 async def update_user_profile(
     user_data: UserCreate,
     db: Session = Depends(get_db),
@@ -20,7 +22,9 @@ async def update_user_profile(
     """Update the authenticated user's profile after onboarding"""
     user = db.query(User).filter(User.id == current_user.id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     for field, value in user_data.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
     db.commit()

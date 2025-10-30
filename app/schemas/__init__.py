@@ -2,10 +2,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+
 # Auth schemas
 class LoginRequest(BaseModel):
     email: str
     password: str
+
 
 # User schemas
 class UserCreate(BaseModel):
@@ -41,6 +43,7 @@ class UserResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
 # Registration request/response schemas
 class RegisterRequest(BaseModel):
     email: str
@@ -48,11 +51,13 @@ class RegisterRequest(BaseModel):
     first_name: str
     last_name: str
 
+
 class RegisterResponse(BaseModel):
     success: bool
     message: str
     access_token: Optional[str] = None
-    user: Optional['UserResponse'] = None
+    user: Optional["UserResponse"] = None
+
 
 # Token response for login
 class TokenResponse(BaseModel):
@@ -107,7 +112,6 @@ class UserRecipeProgressResponse(BaseModel):
     status: str
     feedback: Optional[str]
     completed_at: Optional[datetime]
-
 
 
 # Progress summary schema
