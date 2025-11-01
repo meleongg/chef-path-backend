@@ -7,6 +7,8 @@ from sqlalchemy import (
     ForeignKey,
     Boolean,
 )
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -17,7 +19,7 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     email = Column(
         String(255), unique=True, nullable=False, index=True
     )  # unique email for login
@@ -61,7 +63,7 @@ class WeeklyPlan(Base):
     __tablename__ = "weekly_plans"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     week_number = Column(Integer, nullable=False)  # week of the course (1-N)
     recipe_ids = Column(Text, nullable=False)  # JSON string of recipe IDs
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -75,7 +77,7 @@ class UserRecipeProgress(Base):
     __tablename__ = "user_recipe_progress"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
     week_number = Column(Integer, nullable=False)
     status = Column(String(20), default="not_started")  # not_started, completed
