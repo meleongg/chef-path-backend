@@ -76,7 +76,7 @@ class WeeklyPlan(Base):
 class UserRecipeProgress(Base):
     __tablename__ = "user_recipe_progress"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id"), nullable=False)
     week_number = Column(Integer, nullable=False)
