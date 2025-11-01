@@ -44,7 +44,7 @@ class User(Base):
 class Recipe(Base):
     __tablename__ = "recipes"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     external_id = Column(String(50), unique=True, index=True)  # TheMealDB ID
     name = Column(String(200), nullable=False)
     cuisine = Column(String(50), nullable=False)
@@ -62,7 +62,7 @@ class Recipe(Base):
 class WeeklyPlan(Base):
     __tablename__ = "weekly_plans"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     week_number = Column(Integer, nullable=False)  # week of the course (1-N)
     recipe_ids = Column(Text, nullable=False)  # JSON string of recipe IDs
@@ -78,7 +78,7 @@ class UserRecipeProgress(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    recipe_id = Column(Integer, ForeignKey("recipes.id"), nullable=False)
+    recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id"), nullable=False)
     week_number = Column(Integer, nullable=False)
     status = Column(String(20), default="not_started")  # not_started, completed
     feedback = Column(String(20))  # too_easy, just_right, too_hard
