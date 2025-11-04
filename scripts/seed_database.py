@@ -136,49 +136,53 @@ async def seed_database(clear_first: bool = False):
             recipes.append(recipe)
         print(f"    ✅ Added {len(recipes)} mock Chinese recipes")
 
-        # Generate week 1 plan for Test user
-        print(f"\n📅 Generating week 1 plan for Test user...")
-        plan = await plan_service.generate_weekly_plan(test_user, 1, db)
-        # Update the plan's recipe_ids to include the mock recipe IDs
-        if recipes and plan:
-            recipe_ids = [str(recipe.id) for recipe in recipes]
-            plan.recipe_ids = json.dumps(recipe_ids)
-            db.commit()
-            print(f"  ✅ Updated week 1 plan with recipe_ids: {recipe_ids}")
-            # Seed UserRecipeProgress for each recipe in the weekly plan
-            print(f"\n📝 Seeding UserRecipeProgress records...")
-            for i, recipe in enumerate(recipes):
-                progress_id = uuid.uuid4()
-                if i == 0:
-                    # Mark first recipe as completed with feedback
-                    progress = UserRecipeProgress(
-                        id=progress_id,
-                        user_id=test_user.id,
-                        recipe_id=recipe.id,
-                        week_number=1,
-                        status="completed",
-                        feedback="just_right",
-                        completed_at=datetime.now(timezone.utc),
-                        satisfaction_rating=5,
-                        difficulty_rating=3,
-                    )
-                else:
-                    # Others as not started
-                    progress = UserRecipeProgress(
-                        id=progress_id,
-                        user_id=test_user.id,
-                        recipe_id=recipe.id,
-                        week_number=1,
-                        status="not_started",
-                        feedback=None,
-                        completed_at=None,
-                        satisfaction_rating=None,
-                        difficulty_rating=None,
-                    )
-                db.add(progress)
-            db.commit()
-            print(f"  ✅ Seeded progress records for recipes: {recipe_ids}")
-        print(f"  ✅ Generated week 1 plan for Test user")
+        # Mock week 1 plan for Test user using static recipes
+        print(f"\n📅 Generating week 1 plan for Test user (mocked)...")
+        recipe_ids = [str(recipe.id) for recipe in recipes]
+        plan = WeeklyPlan(
+            user_id=test_user.id,
+            week_number=1,
+            recipe_ids=json.dumps(recipe_ids),
+            is_unlocked=True,
+        )
+        db.add(plan)
+        db.commit()
+        db.refresh(plan)
+        print(f"  ✅ Created week 1 plan with recipe_ids: {recipe_ids}")
+        # Seed UserRecipeProgress for each recipe in the weekly plan
+        print(f"\n📝 Seeding UserRecipeProgress records...")
+        for i, recipe in enumerate(recipes):
+            progress_id = uuid.uuid4()
+            if i == 0:
+                # Mark first recipe as completed with feedback
+                progress = UserRecipeProgress(
+                    id=progress_id,
+                    user_id=test_user.id,
+                    recipe_id=recipe.id,
+                    week_number=1,
+                    status="completed",
+                    feedback="just_right",
+                    completed_at=datetime.now(timezone.utc),
+                    satisfaction_rating=5,
+                    difficulty_rating=3,
+                )
+            else:
+                # Others as not started
+                progress = UserRecipeProgress(
+                    id=progress_id,
+                    user_id=test_user.id,
+                    recipe_id=recipe.id,
+                    week_number=1,
+                    status="not_started",
+                    feedback=None,
+                    completed_at=None,
+                    satisfaction_rating=None,
+                    difficulty_rating=None,
+                )
+            db.add(progress)
+        db.commit()
+        print(f"  ✅ Seeded progress records for recipes: {recipe_ids}")
+        print(f"  ✅ Generated week 1 plan for Test user (mocked)")
 
         # Display summary
         print(f"\n📊 Database seeding complete! Summary:")

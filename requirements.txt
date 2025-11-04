@@ -9,3 +9,5 @@ black==23.12.1
 psycopg2-binary
 alembic
 pgvector
+openai
+langchain-openai
