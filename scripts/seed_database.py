@@ -3,7 +3,7 @@
 Database Seed Script for ChefPath Backend
 
 This script populates the database with sample data for testing and development.
-It creates sample users, fetches real recipes from TheMealDB, and sets up weekly plans.
+It creates sample users, creates mock recipes, and sets up weekly plans.
 
 Usage:
     python scripts/seed_database.py
@@ -14,6 +14,8 @@ import sys
 import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
+import uuid
+import json
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -23,7 +25,6 @@ sys.path.insert(0, str(backend_dir))
 from sqlalchemy.orm import Session
 from app.database import engine, create_tables
 from app.models import User, Recipe, WeeklyPlan, UserRecipeProgress
-from app.services.themealdb import TheMealDBService
 from app.services.weekly_plan import WeeklyPlanService
 from app.utils.password import hash_password
 
@@ -49,10 +50,10 @@ async def seed_database(clear_first: bool = False):
     plan_service = WeeklyPlanService()
 
     try:
-        # Create only the Test user (with id=5)
+        # Create only the Test user (with a generated UUID)
         print("\n� Creating Test user...")
         test_user = User(
-            id=5,
+            id=uuid.uuid4(),
             first_name="First",
             last_name="Last",
             email="test@gmail.com",
@@ -82,6 +83,8 @@ async def seed_database(clear_first: bool = False):
                 "difficulty": "easy",
                 "tags": '["pork", "sweet", "sour"]',
                 "image_url": "https://example.com/sweet_sour_pork.jpg",
+                "content_text": "Recipe Name: Mock Sweet and Sour Pork Cuisine: Chinese Difficulty: easy Tags: [\"pork\", \"sweet\", \"sour\"] Ingredients: [\"pork\", \"pineapple\", \"bell pepper\", \"vinegar\", \"sugar\"] Instructions: 1. Fry pork. 2. Add sauce. 3. Serve.",
+                "is_ai_generated": False,
             },
             {
                 "external_id": "1002",
@@ -92,6 +95,8 @@ async def seed_database(clear_first: bool = False):
                 "difficulty": "medium",
                 "tags": '["chicken", "spicy"]',
                 "image_url": "https://example.com/kung_pao_chicken.jpg",
+                "content_text": "Recipe Name: Mock Kung Pao Chicken Cuisine: Chinese Difficulty: medium Tags: [\"chicken\", \"spicy\"] Ingredients: [\"chicken\", \"peanuts\", \"chili peppers\", \"soy sauce\"] Instructions: 1. Stir fry chicken. 2. Add peanuts and sauce. 3. Serve.",
+                "is_ai_generated": False,
             },
             {
                 "external_id": "1003",
@@ -102,11 +107,13 @@ async def seed_database(clear_first: bool = False):
                 "difficulty": "easy",
                 "tags": '["tofu", "spicy", "vegetarian"]',
                 "image_url": "https://example.com/mapo_tofu.jpg",
+                "content_text": "Recipe Name: Mock Mapo Tofu Cuisine: Chinese Difficulty: easy Tags: [\"tofu\", \"spicy\", \"vegetarian\"] Ingredients: [\"tofu\", \"ground pork\", \"chili bean paste\", \"green onion\"] Instructions: 1. Cook pork. 2. Add tofu and sauce. 3. Simmer.",
+                "is_ai_generated": False,
             },
         ]
         recipes = []
         for recipe_data in mock_recipes_data:
-            recipe = Recipe(**recipe_data)
+            recipe = Recipe(id=uuid.uuid4(), **recipe_data)
             db.add(recipe)
             db.commit()
             db.refresh(recipe)
@@ -118,32 +125,39 @@ async def seed_database(clear_first: bool = False):
         plan = await plan_service.generate_weekly_plan(test_user, 1, db)
         # Update the plan's recipe_ids to include the mock recipe IDs
         if recipes and plan:
-            recipe_ids = [recipe.id for recipe in recipes]
-            plan.recipe_ids = str(recipe_ids)
+            recipe_ids = [str(recipe.id) for recipe in recipes]
+            plan.recipe_ids = json.dumps(recipe_ids)
             db.commit()
             print(f"  ✅ Updated week 1 plan with recipe_ids: {recipe_ids}")
             # Seed UserRecipeProgress for each recipe in the weekly plan
             print(f"\n📝 Seeding UserRecipeProgress records...")
             for i, recipe in enumerate(recipes):
+                progress_id = uuid.uuid4()
                 if i == 0:
                     # Mark first recipe as completed with feedback
                     progress = UserRecipeProgress(
+                        id=progress_id,
                         user_id=test_user.id,
                         recipe_id=recipe.id,
                         week_number=1,
                         status="completed",
                         feedback="just_right",
                         completed_at=datetime.now(timezone.utc),
+                        satisfaction_rating=5,
+                        difficulty_rating=3,
                     )
                 else:
                     # Others as not started
                     progress = UserRecipeProgress(
+                        id=progress_id,
                         user_id=test_user.id,
                         recipe_id=recipe.id,
                         week_number=1,
                         status="not_started",
                         feedback=None,
                         completed_at=None,
+                        satisfaction_rating=None,
+                        difficulty_rating=None,
                     )
                 db.add(progress)
             db.commit()

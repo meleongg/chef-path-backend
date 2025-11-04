@@ -53,7 +53,7 @@ class WeeklyPlanService:
     async def generate_weekly_plan(
         self, user: User, week_number: int, db: Session
     ) -> WeeklyPlan:
-        """Generate a weekly plan for a user"""
+        """Generate a weekly plan for a user (acquisition only, no adaptive selection)"""
         # Check if plan already exists
         existing_plan = (
             db.query(WeeklyPlan)
@@ -62,27 +62,25 @@ class WeeklyPlanService:
             )
             .first()
         )
-
         if existing_plan:
             return existing_plan
 
-        # Get user's feedback history to adapt difficulty
-        adapted_skill = self.adapt_skill_level(user, week_number, db)
-
-        # Get recipes from TheMealDB
-        recipes = await self.meal_service.get_recipes_for_user(
-            getattr(user, "cuisine"), adapted_skill, getattr(user, "frequency"), db
-        )
+        # For now, just acquire random recipes from TheMealDB
+        # Future: Use AI planner for adaptive selection
+        recipes_data = await self.meal_service.get_random_recipes(getattr(user, "frequency"))
+        recipes = []
+        for meal_data in recipes_data:
+            recipe = await self.meal_service.save_recipe_to_db(meal_data, db)
+            recipes.append(recipe)
 
         # Create weekly plan
-        recipe_ids = [recipe.id for recipe in recipes]
+        recipe_ids = [str(recipe.id) for recipe in recipes]
         plan = WeeklyPlan(
             user_id=user.id,
             week_number=week_number,
             recipe_ids=json.dumps(recipe_ids),
             is_unlocked=(week_number == 1),  # Only first week is unlocked initially
         )
-
         db.add(plan)
         db.commit()
         db.refresh(plan)
@@ -96,7 +94,6 @@ class WeeklyPlanService:
                 status="not_started",
             )
             db.add(progress)
-
         db.commit()
         return plan
 
