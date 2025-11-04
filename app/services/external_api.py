@@ -68,6 +68,17 @@ class MealDBAcquisitionService:
                 ingredients.append(ingredient_obj)
         return json.dumps(ingredients)
 
+    def generate_content_text(self, meal_data: Dict, difficulty: str, ingredients_json: str) -> str:
+        """Generate content_text for a recipe from TheMealDB API data."""
+        return (
+            f"Recipe Name: {meal_data.get('strMeal', '')} "
+            f"Cuisine: {meal_data.get('strArea', '')} "
+            f"Difficulty: {difficulty} "
+            f"Tags: {meal_data.get('strTags', 'none')} "
+            f"Ingredients: {ingredients_json} "
+            f"Instructions: {meal_data.get('strInstructions', '')}"
+        )
+
     async def save_recipe_to_db(self, meal_data: Dict, db: Session) -> Recipe:
         existing_recipe = db.query(Recipe).filter(Recipe.external_id == meal_data["idMeal"]).first()
         if existing_recipe:
@@ -75,6 +86,7 @@ class MealDBAcquisitionService:
         ingredients_json = self.format_ingredients(meal_data)
         ingredients_count = len(json.loads(ingredients_json))
         difficulty = self.determine_difficulty(meal_data.get("strInstructions", ""), ingredients_count)
+        content_text = self.generate_content_text(meal_data, difficulty, ingredients_json)
         recipe = Recipe(
             external_id=meal_data["idMeal"],
             name=meal_data["strMeal"],
@@ -85,6 +97,7 @@ class MealDBAcquisitionService:
             tags=meal_data.get("strTags", ""),
             image_url=meal_data.get("strMealThumb"),
             is_ai_generated=False,
+            content_text=content_text,
         )
         db.add(recipe)
         db.commit()
