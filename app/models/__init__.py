@@ -7,7 +7,8 @@ from sqlalchemy import (
     ForeignKey,
     Boolean,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, TEXT
+from pgvector.sqlalchemy import Vector
 import uuid
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -58,6 +59,11 @@ class Recipe(Base):
     # Relationships
     recipe_progress = relationship("UserRecipeProgress", back_populates="recipe")
 
+    # AI fields
+    content_text = Column(TEXT, nullable=True)  # Full text for embedding
+    embedding = Column(Vector(1536), nullable=True)  # Vector embedding
+    is_ai_generated = Column(Boolean, default=False)  # Flag for AI origin
+
 
 class WeeklyPlan(Base):
     __tablename__ = "weekly_plans"
@@ -87,3 +93,7 @@ class UserRecipeProgress(Base):
     # Relationships
     user = relationship("User", back_populates="recipe_progress")
     recipe = relationship("Recipe", back_populates="recipe_progress")
+
+    # Enhanced feedback for AI
+    satisfaction_rating = Column(Integer, nullable=True)  # 1-5 rating
+    difficulty_rating = Column(Integer, nullable=True)  # 1-5 rating
