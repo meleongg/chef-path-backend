@@ -1,14 +1,13 @@
 import json
-from typing import List
 from sqlalchemy.orm import Session
-from app.models import User, Recipe, WeeklyPlan, UserRecipeProgress
-from app.services.themealdb import TheMealDBService
+from app.models import User, WeeklyPlan, UserRecipeProgress
+from app.services.external_api import MealDBAcquisitionService
 from datetime import datetime, timezone
 
 
 class WeeklyPlanService:
     def __init__(self):
-        self.meal_service = TheMealDBService()
+        self.meal_service = MealDBAcquisitionService()
 
     async def close(self):
         await self.meal_service.close()
