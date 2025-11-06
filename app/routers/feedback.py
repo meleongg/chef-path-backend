@@ -6,7 +6,7 @@ from app.utils.auth import get_current_user
 from app.schemas import FeedbackCreate, UserRecipeProgressResponse, ProgressSummary
 from app.services.weekly_plan import WeeklyPlanService
 from app.models import UserRecipeProgress
-from app.models import UserRecipeProgress
+from uuid import UUID
 
 router = APIRouter()
 plan_service = WeeklyPlanService()
@@ -14,7 +14,7 @@ plan_service = WeeklyPlanService()
 
 @router.post("/feedback/{user_id}", response_model=UserRecipeProgressResponse)
 async def submit_feedback(
-    user_id: int,
+    user_id: UUID,
     feedback_data: FeedbackCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -46,7 +46,7 @@ async def submit_feedback(
 
 @router.get("/progress/{user_id}", response_model=ProgressSummary)
 async def get_progress_path(
-    user_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)
+    user_id: UUID, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """Get user progress summary (path version)"""
     summary = plan_service.get_progress_summary(user_id, db)
@@ -62,7 +62,7 @@ async def get_progress_path(
     response_model=List[UserRecipeProgressResponse],
 )
 async def get_weekly_progress(
-    user_id: int,
+    user_id: UUID,
     week_number: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),

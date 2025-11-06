@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 from app.database import get_db
 from app.utils.auth import get_current_user
 from app.models import User
 from app.schemas import UserCreate, UserUpdate, UserResponse
-from app.services.weekly_plan import WeeklyPlanService
-import asyncio
 
 router = APIRouter()
 
@@ -34,7 +33,7 @@ async def update_user_profile(
 
 @router.get("/user/{user_id}", response_model=UserResponse)
 async def get_user(
-    user_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)
+    user_id: UUID, db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
     """Get user profile by ID"""
     user = db.query(User).filter(User.id == user_id).first()
@@ -47,7 +46,7 @@ async def get_user(
 
 @router.put("/user/{user_id}", response_model=UserResponse)
 async def update_user(
-    user_id: int,
+    user_id: UUID,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),

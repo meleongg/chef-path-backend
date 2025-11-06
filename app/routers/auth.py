@@ -44,7 +44,7 @@ def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"user_id": user.id, "exp": expire}
+    payload = {"user_id": str(user.id), "exp": expire}
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     user_resp = UserResponse.model_validate(user)
     return RegisterResponse(
@@ -61,7 +61,7 @@ def login_user(data: LoginRequest, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"user_id": user.id, "exp": expire}
+    payload = {"user_id": str(user.id), "exp": expire}
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     user_resp = UserResponse.model_validate(user)
     return {"access_token": token, "token_type": "bearer", "user": user_resp}

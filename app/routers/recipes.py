@@ -4,13 +4,14 @@ from app.database import get_db
 from app.utils.auth import get_current_user
 from app.models import Recipe
 from app.schemas import RecipeResponse
+from uuid import UUID
 
 router = APIRouter()
 
 
 @router.get("/recipe/{recipe_id}", response_model=RecipeResponse)
 async def get_recipe(
-    recipe_id: int,
+    recipe_id: UUID,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
