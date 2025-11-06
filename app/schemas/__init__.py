@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 
 
 # Auth schemas
@@ -31,7 +32,7 @@ class UserUpdate(BaseModel):
 
 
 class UserResponse(BaseModel):
-    id: int
+    id: UUID
     email: str
     first_name: str
     last_name: str
@@ -70,7 +71,7 @@ class TokenResponse(BaseModel):
 
 # Recipe schemas
 class RecipeResponse(BaseModel):
-    id: int
+    id: UUID
     external_id: str
     name: str
     cuisine: str
@@ -86,8 +87,8 @@ class RecipeResponse(BaseModel):
 
 # Weekly Plan schemas
 class WeeklyPlanResponse(BaseModel):
-    id: int
-    user_id: int
+    id: UUID
+    user_id: UUID
     week_number: int
     recipe_ids: str
     generated_at: datetime
@@ -105,9 +106,9 @@ class FeedbackCreate(BaseModel):
 
 
 class UserRecipeProgressResponse(BaseModel):
-    id: int
-    user_id: int
-    recipe_id: int
+    id: UUID
+    user_id: UUID
+    recipe_id: UUID
     week_number: int
     status: str
     feedback: Optional[str]
