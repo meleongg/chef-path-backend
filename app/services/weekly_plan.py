@@ -67,7 +67,9 @@ class WeeklyPlanService:
 
         # For now, just acquire random recipes from TheMealDB
         # Future: Use AI planner for adaptive selection
-        recipes_data = await self.meal_service.get_random_recipes(getattr(user, "frequency"))
+        recipes_data = await self.meal_service.get_random_recipes(
+            getattr(user, "frequency")
+        )
         recipes = []
         for meal_data in recipes_data:
             recipe = await self.meal_service.save_recipe_to_db(meal_data, db)

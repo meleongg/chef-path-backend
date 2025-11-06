@@ -12,93 +12,142 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'ae58ef7dadda'
-down_revision: Union[str, Sequence[str], None] = '7ffcbc4ef576'
+revision: str = "ae58ef7dadda"
+down_revision: Union[str, Sequence[str], None] = "7ffcbc4ef576"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     # --- PHASE 1: Drop Foreign Key Constraints ---
-    op.drop_constraint('user_recipe_progress_recipe_id_fkey', 'user_recipe_progress', type_='foreignkey')
+    op.drop_constraint(
+        "user_recipe_progress_recipe_id_fkey",
+        "user_recipe_progress",
+        type_="foreignkey",
+    )
 
     # --- PHASE 2: Add Temporary UUID Columns ---
     from sqlalchemy.dialects import postgresql
-    op.add_column('recipes', sa.Column('new_id', postgresql.UUID(as_uuid=True), nullable=True))
-    op.add_column('weekly_plans', sa.Column('new_id', postgresql.UUID(as_uuid=True), nullable=True))
-    op.add_column('user_recipe_progress', sa.Column('new_recipe_id', postgresql.UUID(as_uuid=True), nullable=True))
+
+    op.add_column(
+        "recipes", sa.Column("new_id", postgresql.UUID(as_uuid=True), nullable=True)
+    )
+    op.add_column(
+        "weekly_plans",
+        sa.Column("new_id", postgresql.UUID(as_uuid=True), nullable=True),
+    )
+    op.add_column(
+        "user_recipe_progress",
+        sa.Column("new_recipe_id", postgresql.UUID(as_uuid=True), nullable=True),
+    )
 
     # --- PHASE 3: Data Mapping ---
     import uuid
+
     conn = op.get_bind()
     # Recipes
     recipes_table = sa.Table(
-        'recipes', sa.MetaData(),
-        sa.Column('id', sa.Integer, primary_key=True),
-        sa.Column('new_id', postgresql.UUID(as_uuid=True)),
-        autoload_with=conn
+        "recipes",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("new_id", postgresql.UUID(as_uuid=True)),
+        autoload_with=conn,
     )
     recipe_migration_map = {
-        int_id: uuid.uuid5(uuid.NAMESPACE_DNS, f'chefpath_recipe_uuid_salt:{int_id}')
+        int_id: uuid.uuid5(uuid.NAMESPACE_DNS, f"chefpath_recipe_uuid_salt:{int_id}")
         for (int_id,) in conn.execute(sa.select(recipes_table.c.id)).fetchall()
     }
     for old_id, new_id in recipe_migration_map.items():
-        conn.execute(recipes_table.update().where(recipes_table.c.id == old_id).values(new_id=new_id))
+        conn.execute(
+            recipes_table.update()
+            .where(recipes_table.c.id == old_id)
+            .values(new_id=new_id)
+        )
 
     # Weekly Plans
     weekly_plans_table = sa.Table(
-        'weekly_plans', sa.MetaData(),
-        sa.Column('id', sa.Integer, primary_key=True),
-        sa.Column('new_id', postgresql.UUID(as_uuid=True)),
-        autoload_with=conn
+        "weekly_plans",
+        sa.MetaData(),
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("new_id", postgresql.UUID(as_uuid=True)),
+        autoload_with=conn,
     )
     plan_migration_map = {
-        int_id: uuid.uuid5(uuid.NAMESPACE_DNS, f'chefpath_plan_uuid_salt:{int_id}')
+        int_id: uuid.uuid5(uuid.NAMESPACE_DNS, f"chefpath_plan_uuid_salt:{int_id}")
         for (int_id,) in conn.execute(sa.select(weekly_plans_table.c.id)).fetchall()
     }
     for old_id, new_id in plan_migration_map.items():
-        conn.execute(weekly_plans_table.update().where(weekly_plans_table.c.id == old_id).values(new_id=new_id))
+        conn.execute(
+            weekly_plans_table.update()
+            .where(weekly_plans_table.c.id == old_id)
+            .values(new_id=new_id)
+        )
 
     # UserRecipeProgress: update recipe_id references
     user_recipe_progress_table = sa.Table(
-        'user_recipe_progress', sa.MetaData(),
-        sa.Column('recipe_id', sa.Integer),
-        sa.Column('new_recipe_id', postgresql.UUID),
-        autoload_with=conn
+        "user_recipe_progress",
+        sa.MetaData(),
+        sa.Column("recipe_id", sa.Integer),
+        sa.Column("new_recipe_id", postgresql.UUID),
+        autoload_with=conn,
     )
     for old_id, new_id in recipe_migration_map.items():
-        conn.execute(user_recipe_progress_table.update().where(user_recipe_progress_table.c.recipe_id == old_id).values(new_recipe_id=new_id))
+        conn.execute(
+            user_recipe_progress_table.update()
+            .where(user_recipe_progress_table.c.recipe_id == old_id)
+            .values(new_recipe_id=new_id)
+        )
 
     # --- PHASE 4: Swap/Cleanup ---
-    op.drop_column('recipes', 'id')
-    op.drop_column('weekly_plans', 'id')
-    op.drop_column('user_recipe_progress', 'recipe_id')
+    op.drop_column("recipes", "id")
+    op.drop_column("weekly_plans", "id")
+    op.drop_column("user_recipe_progress", "recipe_id")
 
-    op.alter_column('recipes', 'new_id', new_column_name='id', nullable=False)
-    op.alter_column('weekly_plans', 'new_id', new_column_name='id', nullable=False)
-    op.alter_column('user_recipe_progress', 'new_recipe_id', new_column_name='recipe_id', nullable=False)
+    op.alter_column("recipes", "new_id", new_column_name="id", nullable=False)
+    op.alter_column("weekly_plans", "new_id", new_column_name="id", nullable=False)
+    op.alter_column(
+        "user_recipe_progress",
+        "new_recipe_id",
+        new_column_name="recipe_id",
+        nullable=False,
+    )
 
     # --- PHASE 5: Reapply Constraints ---
-    op.create_primary_key('recipes_pkey', 'recipes', ['id'])
-    op.create_primary_key('weekly_plans_pkey', 'weekly_plans', ['id'])
-    op.create_foreign_key('user_recipe_progress_recipe_id_fkey', 'user_recipe_progress', 'recipes', ['recipe_id'], ['id'])
+    op.create_primary_key("recipes_pkey", "recipes", ["id"])
+    op.create_primary_key("weekly_plans_pkey", "weekly_plans", ["id"])
+    op.create_foreign_key(
+        "user_recipe_progress_recipe_id_fkey",
+        "user_recipe_progress",
+        "recipes",
+        ["recipe_id"],
+        ["id"],
+    )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
-    op.alter_column('weekly_plans', 'id',
-               existing_type=sa.UUID(),
-               type_=sa.INTEGER(),
-               existing_nullable=False)
-    op.drop_index(op.f('ix_users_id'), table_name='users')
-    op.alter_column('user_recipe_progress', 'recipe_id',
-               existing_type=sa.UUID(),
-               type_=sa.INTEGER(),
-               existing_nullable=False)
-    op.alter_column('recipes', 'id',
-               existing_type=sa.UUID(),
-               type_=sa.INTEGER(),
-               existing_nullable=False,
-               existing_server_default=sa.text("nextval('recipes_id_seq'::regclass)"))
+    op.alter_column(
+        "weekly_plans",
+        "id",
+        existing_type=sa.UUID(),
+        type_=sa.INTEGER(),
+        existing_nullable=False,
+    )
+    op.drop_index(op.f("ix_users_id"), table_name="users")
+    op.alter_column(
+        "user_recipe_progress",
+        "recipe_id",
+        existing_type=sa.UUID(),
+        type_=sa.INTEGER(),
+        existing_nullable=False,
+    )
+    op.alter_column(
+        "recipes",
+        "id",
+        existing_type=sa.UUID(),
+        type_=sa.INTEGER(),
+        existing_nullable=False,
+        existing_server_default=sa.text("nextval('recipes_id_seq'::regclass)"),
+    )
     # ### end Alembic commands ###
