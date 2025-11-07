@@ -1,17 +1,8 @@
-import json
 from sqlalchemy.orm import Session
 from app.models import User, WeeklyPlan, UserRecipeProgress
-from app.services.external_api import MealDBAcquisitionService
 from datetime import datetime, timezone
 
-
 class WeeklyPlanService:
-    def __init__(self):
-        self.meal_service = MealDBAcquisitionService()
-
-    async def close(self):
-        await self.meal_service.close()
-
     def get_current_week(self, user: User, db: Session) -> int:
         """Get the current week number for the user based on their progress"""
         # Get the latest completed week
@@ -53,7 +44,7 @@ class WeeklyPlanService:
     async def generate_weekly_plan(
         self, user: User, week_number: int, db: Session
     ) -> WeeklyPlan:
-        """Generate a weekly plan for a user (acquisition only, no adaptive selection)"""
+        """Generate a weekly plan for a user. (Recipe selection should now use local DB or agent logic.)"""
         # Check if plan already exists
         existing_plan = (
             db.query(WeeklyPlan)
@@ -65,39 +56,9 @@ class WeeklyPlanService:
         if existing_plan:
             return existing_plan
 
-        # For now, just acquire random recipes from TheMealDB
-        # Future: Use AI planner for adaptive selection
-        recipes_data = await self.meal_service.get_random_recipes(
-            getattr(user, "frequency")
-        )
-        recipes = []
-        for meal_data in recipes_data:
-            recipe = await self.meal_service.save_recipe_to_db(meal_data, db)
-            recipes.append(recipe)
-
-        # Create weekly plan
-        recipe_ids = [str(recipe.id) for recipe in recipes]
-        plan = WeeklyPlan(
-            user_id=user.id,
-            week_number=week_number,
-            recipe_ids=json.dumps(recipe_ids),
-            is_unlocked=(week_number == 1),  # Only first week is unlocked initially
-        )
-        db.add(plan)
-        db.commit()
-        db.refresh(plan)
-
-        # Create progress entries for each recipe
-        for recipe in recipes:
-            progress = UserRecipeProgress(
-                user_id=user.id,
-                recipe_id=recipe.id,
-                week_number=week_number,
-                status="not_started",
-            )
-            db.add(progress)
-        db.commit()
-        return plan
+        # TODO: Replace this with agent-driven or local DB recipe selection logic
+        # For now, raise NotImplementedError to force update of this logic
+        raise NotImplementedError("Recipe selection for weekly plan should use local DB or agent logic.")
 
     def adapt_skill_level(self, user: User, week_number: int, db: Session) -> str:
         """Adapt skill level based on user feedback from previous weeks"""
