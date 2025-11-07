@@ -15,11 +15,13 @@ from app.database import engine
 from app.models import Recipe
 from app.services.external_api import MealDBAcquisitionService
 
+
 # Helper function to generate content_text for a recipe
 def generate_content_text(recipe_data):
     import json
-    ingredients_list = json.loads(recipe_data.get('ingredients', '[]'))
-    ingredients_names = [item['name'] for item in ingredients_list if 'name' in item]
+
+    ingredients_list = json.loads(recipe_data.get("ingredients", "[]"))
+    ingredients_names = [item["name"] for item in ingredients_list if "name" in item]
     content = f"""
     Recipe Name: {recipe_data.get('name')}
     Cuisine: {recipe_data.get('cuisine')}
@@ -28,7 +30,8 @@ def generate_content_text(recipe_data):
     Ingredients: {', '.join(ingredients_names)}
     Instructions: {recipe_data.get('instructions')}
     """
-    return ' '.join(content.split()).strip()
+    return " ".join(content.split()).strip()
+
 
 async def fetch_all_meals_by_alpha():
     """
@@ -46,13 +49,14 @@ async def fetch_all_meals_by_alpha():
             meals = data.get("meals", [])
             if meals:
                 for meal in meals:
-                    if meal and meal.get('idMeal'):
-                        all_meal_ids.add(meal['idMeal'])
+                    if meal and meal.get("idMeal"):
+                        all_meal_ids.add(meal["idMeal"])
         except Exception as e:
             print(f"Warning: Failed to fetch meals for letter {letter}. Error: {e}")
             continue
     await meal_db_service.close()
     return all_meal_ids
+
 
 async def hydrate_recipes_exhaustive():
     """Fetches ALL unique recipes from TheMealDB and saves/enriches them."""
@@ -60,14 +64,20 @@ async def hydrate_recipes_exhaustive():
     db_session = Session(bind=engine)
     try:
         total_ids = await fetch_all_meals_by_alpha()
-        existing_ids = set(str(r.external_id) for r in db_session.query(Recipe.external_id).all() if r.external_id)
+        existing_ids = set(
+            str(r.external_id)
+            for r in db_session.query(Recipe.external_id).all()
+            if r.external_id
+        )
         ids_to_fetch = total_ids - existing_ids
         print(f"Found {len(total_ids)} unique recipes in TheMealDB index.")
         print(f"Need to fetch and save {len(ids_to_fetch)} new recipes.")
         for meal_id in ids_to_fetch:
             details = await meal_db_service.get_recipe_details(meal_id)
-            if details and details.get('strInstructions'):
-                recipe_obj = await meal_db_service.save_recipe_to_db(details, db_session)
+            if details and details.get("strInstructions"):
+                recipe_obj = await meal_db_service.save_recipe_to_db(
+                    details, db_session
+                )
                 new_content = generate_content_text(recipe_obj.__dict__)
                 db_session.execute(
                     update(Recipe)
@@ -84,6 +94,7 @@ async def hydrate_recipes_exhaustive():
     finally:
         await meal_db_service.close()
         db_session.close()
+
 
 if __name__ == "__main__":
     asyncio.run(hydrate_recipes_exhaustive())
