@@ -87,7 +87,9 @@ class AdaptivePlannerService:
         # Placeholder for future LangGraph logic
         return []
 
+
 planner_service = AdaptivePlannerService(db=CONNECTION_STRING)
+
 
 @tool(args_schema=HybridSearchInput)
 def get_recipe_candidates(
