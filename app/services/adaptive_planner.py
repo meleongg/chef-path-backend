@@ -9,6 +9,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_core.vectorstores import PGVector
 from app.database import engine
 from app.models import User, Recipe, UserRecipeProgress
+from app.schemas.adaptive_planner import HybridSearchInput
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
