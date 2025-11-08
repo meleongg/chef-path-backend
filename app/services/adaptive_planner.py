@@ -1,6 +1,7 @@
 import os
+import json
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import UUID
@@ -8,13 +9,22 @@ from pgvector.sqlalchemy import Vector
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.vectorstores import PGVector
 from langchain_core.tools import tool
-from app.database import engine
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from app.database import engine, get_db, SessionLocal
 from app.models import User, Recipe, UserRecipeProgress
-from app.schemas.adaptive_planner import HybridSearchInput, FinalPlanOutput
+from app.schemas.adaptive_planner import (
+    HybridSearchInput,
+    FinalPlanOutput,
+    NewRecipeSchema,
+)
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
     raise EnvironmentError("DATABASE_URL not set for Adaptive Planner Service.")
+
+GENERATIVE_LLM = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 
 
 class AdaptivePlannerService:
@@ -134,3 +144,73 @@ def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
     # This tool is purely a structural mechanism. It just returns the list it was given.
     # The LangGraph state machine handles committing this list to the WeeklyPlanService later.
     return f"Selection complete. {len(final_recipe_ids)} recipes submitted."
+
+
+@tool
+def generate_and_save_new_recipe(
+    user_prompt: str, user_skill: str, user_goal: str
+) -> str:
+    """
+    Generates a new, custom recipe based on the user's specific request.
+    Saves the new recipe to the database and flags it for vectorization.
+    """
+
+    # Define the Recipe Generation Prompt
+    system_prompt = (
+        "You are a professional chef. Your task is to generate a new, unique recipe "
+        "that adheres strictly to the user's request, skill level, and goals. "
+        "You MUST output the result as a single JSON object matching the provided schema."
+    )
+    user_request_prompt = f"""
+    Please generate a new recipe.
+    Skill Level MUST be suitable for: {user_skill}.
+    Primary Goal MUST be considered: {user_goal}.
+    Recipe Specific Request: {user_prompt}
+    """
+
+    # Bind the structured schema to the LLM call
+    structured_llm = GENERATIVE_LLM.with_structured_output(NewRecipeSchema)
+
+    try:
+        # Invoke the LLM to generate the structured recipe object
+        generated_recipe_data: NewRecipeSchema = structured_llm.invoke(
+            [
+                HumanMessage(content=system_prompt),
+                HumanMessage(content=user_request_prompt),
+            ]
+        )
+
+        # Save to Database and Trigger Vectorization
+        with Session(
+            bind=engine
+        ) as db:  # Use direct engine bind for a transactional script
+            # Ensure the ingredients field is converted correctly
+            ingredients_text = generated_recipe_data.ingredients
+
+            # Create the final recipe object
+            new_recipe = Recipe(
+                name=generated_recipe_data.name,
+                cuisine=generated_recipe_data.cuisine,
+                ingredients=ingredients_text,
+                instructions=generated_recipe_data.instructions,
+                difficulty=generated_recipe_data.difficulty,
+                is_ai_generated=True,  # Flag this as an LLM creation
+                # content_text is left NULL, triggering the background vectorization
+            )
+
+            db.add(new_recipe)
+            db.commit()
+            db.refresh(new_recipe)
+
+            # --- TRIGGER VECTORIZATION (BACKGROUND TASK) ---
+            # In a real FastAPI app, you would use BackgroundTasks or a task queue here.
+            # For this context, we just log the required action.
+            print(
+                f"*** BACKGROUND TASK: Trigger vectorization for Recipe ID: {new_recipe.id} ***"
+            )
+
+        return f"Successfully generated and saved recipe '{new_recipe.name}' with ID {new_recipe.id}. It is now available for the planner."
+
+    except Exception as e:
+        print(f"Error during generative recipe creation: {e}")
+        return f"Failed to generate and save recipe. Error: {type(e).__name__}"

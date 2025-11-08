@@ -9,7 +9,10 @@ from langchain_core.messages import (
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolExecutor
 from langchain_openai import ChatOpenAI
-from app.services.adaptive_planner import get_recipe_candidates
+from app.services.adaptive_planner import (
+    get_recipe_candidates,
+    generate_and_save_new_recipe,
+)
 import uuid
 
 
@@ -36,7 +39,7 @@ class PlanState(TypedDict):
 LLM = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 # Define the list of tools the agent can call
-tools = [get_recipe_candidates]
+tools = [get_recipe_candidates, generate_and_save_new_recipe]
 
 # Bind the tools to the model (enabling function calling)
 LLM_WITH_TOOLS = LLM.bind_tools(tools)
