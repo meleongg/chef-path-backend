@@ -1,9 +1,27 @@
+import uuid
+import json
+from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from datetime import datetime, timezone
+from sqlalchemy import select, update, text
 
 
 class WeeklyPlanService:
+    def get_user_exclusion_ids(self, user: User, db: Session) -> List[uuid.UUID]:
+        """Fetches all recipe IDs the user has rated poorly (used by the Agent to filter)."""
+        # We define this logic based on your new feedback columns (difficulty_rating, etc.)
+
+        # MOCK/PLACEHOLDER: A real query would look like this:
+        hard_recipes = db.scalars(
+            select(UserRecipeProgress.recipe_id).filter(
+                (UserRecipeProgress.user_id == user.id)
+                & (UserRecipeProgress.difficulty_rating >= 4)
+            )
+        ).all()
+
+        return hard_recipes
+
     def get_current_week(self, user: User, db: Session) -> int:
         """Get the current week number for the user based on their progress"""
         # Get the latest completed week
@@ -43,10 +61,17 @@ class WeeklyPlanService:
             return getattr(latest_progress, "week_number")
 
     async def generate_weekly_plan(
-        self, user: User, week_number: int, db: Session
+        self,
+        user: User,
+        week_number: int,
+        recipe_ids_from_agent: List[uuid.UUID],
+        db: Session,
     ) -> WeeklyPlan:
-        """Generate a weekly plan for a user. (Recipe selection should now use local DB or agent logic.)"""
-        # Check if plan already exists
+        """
+        Commits a new weekly plan to the database using the recipe list provided
+        by the Adaptive Planner Agent.
+        """
+
         existing_plan = (
             db.query(WeeklyPlan)
             .filter(
@@ -55,13 +80,34 @@ class WeeklyPlanService:
             .first()
         )
         if existing_plan:
+            # Update the existing plan's recipes with the agent's new list
+            existing_plan.recipe_ids = recipe_ids_str
+            db.add(existing_plan)
+            db.commit()
+            db.refresh(existing_plan)
+
             return existing_plan
 
-        # TODO: Replace this with agent-driven or local DB recipe selection logic
-        # For now, raise NotImplementedError to force update of this logic
-        raise NotImplementedError(
-            "Recipe selection for weekly plan should use local DB or agent logic."
+        # Serialize the Recipe IDs for storage
+        # Your WeeklyPlan.recipe_ids column is TEXT, so we store the UUIDs as a JSON string.
+        # Ensure the UUID objects are converted to strings first.
+        recipe_ids_str = json.dumps([str(uid) for uid in recipe_ids_from_agent])
+
+        # Create the new plan record
+        new_plan = WeeklyPlan(
+            user_id=user.id,
+            week_number=week_number,
+            recipe_ids=recipe_ids_str,
+            generated_at=datetime.now(timezone.utc),
+            is_unlocked=True,  # Auto-unlock the first plan
         )
+
+        # Commit the transaction
+        db.add(new_plan)
+        db.commit()
+        db.refresh(new_plan)
+
+        return new_plan
 
     def adapt_skill_level(self, user: User, week_number: int, db: Session) -> str:
         """Adapt skill level based on user feedback from previous weeks"""
