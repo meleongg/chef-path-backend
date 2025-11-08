@@ -10,7 +10,7 @@ from langchain_core.vectorstores import PGVector
 from langchain_core.tools import tool
 from app.database import engine
 from app.models import User, Recipe, UserRecipeProgress
-from app.schemas.adaptive_planner import HybridSearchInput
+from app.schemas.adaptive_planner import HybridSearchInput, FinalPlanOutput
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
@@ -123,3 +123,14 @@ def get_recipe_candidates(
         output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {recipe.difficulty}, Score: [RETRIEVED SEMANTIC SCORE]\n"
 
     return output_summary
+
+
+@tool(args_schema=FinalPlanOutput)
+def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
+    """
+    Called by the Agent as the final step to submit the definitive list of 7
+    Recipe UUIDs that the user will follow for their weekly plan.
+    """
+    # This tool is purely a structural mechanism. It just returns the list it was given.
+    # The LangGraph state machine handles committing this list to the WeeklyPlanService later.
+    return f"Selection complete. {len(final_recipe_ids)} recipes submitted."

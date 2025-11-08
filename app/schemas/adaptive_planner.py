@@ -24,3 +24,12 @@ class HybridSearchInput(BaseModel):
     limit: Optional[int] = Field(
         default=10, description="The maximum number of recipe candidates to return."
     )
+
+
+class FinalPlanOutput(BaseModel):
+    """The final list of Recipe IDs selected for the weekly plan."""
+
+    # We want a clean list of 7 UUIDs
+    final_recipe_ids: List[uuid.UUID] = Field(
+        description="The definitive list of 7 (or user.frequency) Recipe UUIDs selected for the user's weekly plan."
+    )
