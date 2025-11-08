@@ -1,8 +1,12 @@
 import operator
-from typing import TypedDict, Annotated, List, Literal, Optional
-from langchain_core.messages import BaseMessage, AnyMessage, HumanMessage, ToolMessage
-from pydantic import BaseModel, Field
-from langgraph.graph import StateGraph, END, START
+from typing import TypedDict, Annotated, List, Literal
+from langchain_core.messages import (
+    AnyMessage,
+    HumanMessage,
+    ToolMessage,
+    AIMessage,
+)
+from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolExecutor
 from langchain_openai import ChatOpenAI
 from app.services.adaptive_planner import get_recipe_candidates
@@ -45,38 +49,59 @@ tool_executor = ToolExecutor(tools)
 def call_agent_reasoner(state: PlanState) -> PlanState:
     """
     The main reasoning node. Prompts the LLM to decide the next action (Tool Call or Response).
+    Includes error handling for network/API failures.
     """
-    # Augment prompt with user context and available tools
     user_prompt = f"User Goal: {state['user_goal']}. User ID: {state['user_id']}. Please generate 7 recipes. Do you need to use a tool?"
 
-    # Invoke the LLM with the available tools
-    response = LLM_WITH_TOOLS.invoke(
-        [HumanMessage(content=user_prompt)] + state["messages"]
-    )
+    try:
+        # Invoke the LLM with the available tools
+        response = LLM_WITH_TOOLS.invoke(
+            [HumanMessage(content=user_prompt)] + state["messages"]
+        )
 
-    # Check if the LLM chose a tool
-    if response.tool_calls:
-        # If tool is called, transition to the tool execution node
-        return {"messages": [response], "next_action": "tool"}
-    else:
-        # If no tool is called, transition to the end to respond to the user
-        return {"messages": [response], "next_action": "end"}
+        # Check if the LLM chose a tool
+        if response.tool_calls:
+            return {"messages": [response], "next_action": "tool"}
+        else:
+            return {"messages": [response], "next_action": "end"}
+
+    except Exception as e:
+        # CRITICAL FAILSAFE: If the LLM network call fails (timeout, 500 error),
+        # return a graceful message and force the graph to end.
+        error_message = f"AI Error: Unable to communicate with the planning engine due to a network issue. Please try again. ({type(e).__name__})"
+        print(f"Agent Reasoning Failed: {e}")
+        return {"messages": [AIMessage(content=error_message)], "next_action": "end"}
 
 
 # Node for Tool Execution
 def execute_tool(state: PlanState) -> PlanState:
-    """Execute the tool called by the LLM and return the result as a ToolMessage."""
+    """Execute the tool called by the LLM and return the result as a ToolMessage.
+    Includes error handling for tool execution (e.g., database connection failure).
+    """
 
     # The last message contains the tool call request from the LLM
     tool_call = state["messages"][-1].tool_calls[0]
 
-    # Execute the Python function (get_recipe_candidates)
-    tool_output = tool_executor.invoke(tool_call)
+    try:
+        # Execute the Python function (get_recipe_candidates_hybrid)
+        tool_output = tool_executor.invoke(tool_call)
 
-    # Add the tool's result to the messages list
-    return {
-        "messages": [ToolMessage(content=tool_output, tool_call_id=tool_call["id"])]
-    }
+        # Add the tool's successful result to the messages list
+        return {
+            "messages": [ToolMessage(content=tool_output, tool_call_id=tool_call["id"])]
+        }
+
+    except Exception as e:
+        # CRITICAL FAILSAFE: If the database or tool execution fails,
+        # return a structured error message to the agent for logging/analysis.
+        error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}"
+        print(f"Tool Execution Failed: {e}")
+        # Send a structured error message back to the LLM for potential reasoning/logging
+        return {
+            "messages": [
+                ToolMessage(content=error_content, tool_call_id=tool_call["id"])
+            ]
+        }
 
 
 def finalize_plan_output(state: PlanState) -> PlanState:
