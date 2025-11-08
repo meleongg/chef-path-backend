@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from datetime import datetime, timezone
 
+
 class WeeklyPlanService:
     def get_current_week(self, user: User, db: Session) -> int:
         """Get the current week number for the user based on their progress"""
@@ -58,7 +59,9 @@ class WeeklyPlanService:
 
         # TODO: Replace this with agent-driven or local DB recipe selection logic
         # For now, raise NotImplementedError to force update of this logic
-        raise NotImplementedError("Recipe selection for weekly plan should use local DB or agent logic.")
+        raise NotImplementedError(
+            "Recipe selection for weekly plan should use local DB or agent logic."
+        )
 
     def adapt_skill_level(self, user: User, week_number: int, db: Session) -> str:
         """Adapt skill level based on user feedback from previous weeks"""
@@ -217,8 +220,8 @@ class WeeklyPlanService:
             "total_recipes": len(all_progress),
             "completed_recipes": len(completed_progress),
             "current_week": current_week,
-            "completion_rate": len(completed_progress) / len(all_progress)
-            if all_progress
-            else 0,
+            "completion_rate": (
+                len(completed_progress) / len(all_progress) if all_progress else 0
+            ),
             "skill_progression": skill_progression,
         }

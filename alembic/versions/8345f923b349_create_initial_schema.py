@@ -1,10 +1,11 @@
 """create_initial_schema
 
 Revision ID: 8345f923b349
-Revises: 
+Revises:
 Create Date: 2025-10-29 20:09:02.255405
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op

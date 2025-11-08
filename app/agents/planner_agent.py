@@ -90,6 +90,7 @@ def route_agent_action(state: PlanState) -> str:
         # If the LLM responded directly, end the cycle
         return "end"
 
+
 # --- Build the Graph ---
 planner_builder = StateGraph(PlanState)
 
@@ -102,9 +103,7 @@ planner_builder.set_entry_point("agent")
 
 # Define Conditional Edge: After the agent reasons, does it need a tool or is it done?
 planner_builder.add_conditional_edges(
-    "agent",
-    route_agent_action,
-    {"tool": "tool", "end": END}
+    "agent", route_agent_action, {"tool": "tool", "end": END}
 )
 
 # Define Loop Edge: After the tool runs, go back to the agent to reason about the tool output
