@@ -55,44 +55,46 @@ async def generate_user_plan_endpoint(
         # The agent runs its entire cycle (retrieve, reason, critique, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(initial_state)
 
-        # 4. Extract Final Output (Assumed to be a list of Recipe IDs from the agent)
-        # In a fully implemented agent, the final node would commit the plan or return the final IDs.
-        # For simplicity here, we assume the final message contains the output:
+        # 4. Extract Final Output from the Agent's State
+        # The agent's final node should have returned the definitive list of recipe IDs.
+        # We assume the last message contains the JSON structure or a specific output key.
 
-        # NOTE: A robust agent would return structured output, not just text.
-        # Placeholder for extracting the final list of UUIDs:
+        # NOTE: You MUST update your LangGraph Agent's final node to populate 'candidate_recipes'
+        # with the final list of UUIDs before transitioning to END.
 
-        # This part requires adjusting the agent to return a structured list of Recipe IDs
-        # For testing, let's assume the agent's logic works and returns the IDs to be planned:
+        final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
 
-        # *** REPLACE THIS LOGIC with actual agent output parser ***
-        # For now, we simulate a successful agent run by failing the old service's dependency:
+        if not final_recipe_ids:
+            # If the agent didn't successfully find recipes, raise an error
+            raise ValueError(
+                "The Adaptive Planner Agent failed to select final recipe IDs."
+            )
 
-        # If the agent successfully generated the final recipe IDs:
-        final_recipe_ids: List[uuid.UUID] = [
-            uuid.uuid4() for _ in range(user.frequency)
-        ]  # MOCK UUIDs
+        # 5. Determine the new week number (Find max week + 1)
+        last_plan = (
+            db.query(WeeklyPlan)
+            .filter(WeeklyPlan.user_id == user_id)
+            .order_by(WeeklyPlan.week_number.desc())
+            .first()
+        )
+        new_week_number = (last_plan.week_number + 1) if last_plan else 1
 
-        # 5. Commit the Plan to the Database (WeeklyPlanService handles transaction)
-        # NOTE: The actual WeeklyPlanService.generate_weekly_plan should be updated
-        # to accept a pre-calculated list of recipe_ids.
-
-        # Since we cannot modify the WeeklyPlanService to accept a list yet,
-        # we still hit the NotImplementedError until we refactor it:
-
-        raise NotImplementedError(
-            "Plan generation is complete, but WeeklyPlanService needs refactoring to commit the new recipe IDs list."
+        # 6. Commit the Plan to the Database (WeeklyPlanService handles transaction)
+        new_plan = plan_service.generate_weekly_plan(
+            user=user,
+            week_number=new_week_number,
+            recipe_ids_from_agent=final_recipe_ids,  # Pass the Agent's decision
+            db=db,
         )
 
-        # Once refactored, the logic would look like this:
-        # new_plan = plan_service.create_plan(user, user.current_week + 1, final_recipe_ids)
-        # return new_plan
+        return new_plan
 
-    except NotImplementedError as e:
-        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e))
+    except ValueError as e:
+        # Catch the specific error if the agent fails to find recipes
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Agent Planning Error: {e}",
+            detail=f"Agent Planning Critical Error: {e}",
         )
