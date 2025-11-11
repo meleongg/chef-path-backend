@@ -1,24 +1,22 @@
 import os
-import json
 import uuid
-from typing import List, Dict, Any, Optional, Literal
+from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import UUID
-from pgvector.sqlalchemy import Vector
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.vectorstores import PGVector
 from langchain_core.tools import tool
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from app.database import engine, get_db, SessionLocal
-from app.models import User, Recipe, UserRecipeProgress
+from app.database import engine
+from app.models import Recipe
 from app.schemas.adaptive_planner import (
     HybridSearchInput,
     FinalPlanOutput,
     NewRecipeSchema,
 )
+from scripts.constants import EMBEDDING_MODEL
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
@@ -35,7 +33,7 @@ class AdaptivePlannerService:
     def __init__(self, db: Session):
         self.db: Session = db
         self.embeddings_client: OpenAIEmbeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small"
+            model=EMBEDDING_MODEL
         )
         self.vector_store: PGVector = PGVector(
             embedding_function=self.embeddings_client,

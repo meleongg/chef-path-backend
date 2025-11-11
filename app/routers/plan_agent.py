@@ -2,13 +2,10 @@ import uuid
 from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from langchain_core.messages import HumanMessage, AnyMessage
-
-from app.database import get_db, SessionLocal
+from langchain_core.messages import HumanMessage
+from app.database import get_db
 from app.models import User, WeeklyPlan
 from app.services.weekly_plan import WeeklyPlanService
-
-# Import the compiled agent object
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
 
 router = APIRouter(
@@ -17,7 +14,6 @@ router = APIRouter(
 )
 
 
-# Dependency to provide the WeeklyPlanService instance
 def get_weekly_plan_service(db: Session = Depends(get_db)) -> WeeklyPlanService:
     return WeeklyPlanService(db=db)
 

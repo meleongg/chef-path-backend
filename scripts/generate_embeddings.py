@@ -14,14 +14,9 @@ sys.path.insert(0, project_root)
 from app.database import engine
 from app.models import Recipe
 from langchain_openai import OpenAIEmbeddings
+from scripts.constants import EMBEDDING_MODEL, BATCH_SIZE
 
-# Load environment variables (OPENAI_API_KEY and DATABASE_URL)
 load_dotenv()
-
-# --- Configuration ---
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSION = 1536
-BATCH_SIZE = 50
 
 
 def generate_embeddings_for_recipes():

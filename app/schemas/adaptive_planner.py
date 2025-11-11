@@ -3,7 +3,6 @@ from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 
-# --- Input Schema Definition ---
 class HybridSearchInput(BaseModel):
     """Input parameters for retrieving recipes using hybrid search."""
 

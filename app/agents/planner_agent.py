@@ -57,20 +57,16 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
     user_prompt = f"User Goal: {state['user_goal']}. User ID: {state['user_id']}. Please generate 7 recipes. Do you need to use a tool?"
 
     try:
-        # Invoke the LLM with the available tools
         response = LLM_WITH_TOOLS.invoke(
             [HumanMessage(content=user_prompt)] + state["messages"]
         )
 
-        # Check if the LLM chose a tool
         if response.tool_calls:
             return {"messages": [response], "next_action": "tool"}
         else:
             return {"messages": [response], "next_action": "end"}
 
     except Exception as e:
-        # CRITICAL FAILSAFE: If the LLM network call fails (timeout, 500 error),
-        # return a graceful message and force the graph to end.
         error_message = f"AI Error: Unable to communicate with the planning engine due to a network issue. Please try again. ({type(e).__name__})"
         print(f"Agent Reasoning Failed: {e}")
         return {"messages": [AIMessage(content=error_message)], "next_action": "end"}
@@ -89,17 +85,13 @@ def execute_tool(state: PlanState) -> PlanState:
         # Execute the Python function (get_recipe_candidates_hybrid)
         tool_output = tool_executor.invoke(tool_call)
 
-        # Add the tool's successful result to the messages list
         return {
             "messages": [ToolMessage(content=tool_output, tool_call_id=tool_call["id"])]
         }
 
     except Exception as e:
-        # CRITICAL FAILSAFE: If the database or tool execution fails,
-        # return a structured error message to the agent for logging/analysis.
         error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}"
         print(f"Tool Execution Failed: {e}")
-        # Send a structured error message back to the LLM for potential reasoning/logging
         return {
             "messages": [
                 ToolMessage(content=error_content, tool_call_id=tool_call["id"])
