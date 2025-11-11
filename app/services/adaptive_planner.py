@@ -84,13 +84,15 @@ class AdaptivePlannerService:
             },
         ).all()
         candidate_ids = [row[0] for row in result]
-        recipes_by_id = {r.id: r for r in self.db.scalars(
-            select(Recipe).filter(Recipe.id.in_(candidate_ids))
-        ).all()}
+        recipes_by_id = {
+            r.id: r
+            for r in self.db.scalars(
+                select(Recipe).filter(Recipe.id.in_(candidate_ids))
+            ).all()
+        }
         # Return list of (Recipe, similarity_score) tuples, preserving order
         return [
-            (recipes_by_id[row[0]], row[3])
-            for row in result if row[0] in recipes_by_id
+            (recipes_by_id[row[0]], row[3]) for row in result if row[0] in recipes_by_id
         ]
 
     def generate_weekly_plan(self, user_id: UUID) -> List[UUID]:
@@ -160,15 +162,25 @@ def generate_and_save_new_recipe(
 
     # Define the Recipe Generation Prompt
     system_prompt = (
-        "You are a professional chef. Your task is to generate a new, unique recipe "
-        "that adheres strictly to the user's request, skill level, and goals. "
-        "You MUST output the result as a single JSON object matching the provided schema."
+        "You are ChefPath, a professional, meticulous adaptive cooking mentor. "
+        "Your primary directives are: 1) Adhere strictly to the provided JSON schema. "
+        "2) The recipe MUST be safe, feasible, and use common, accessible ingredients. "
+        "3) Your output MUST contain only the final JSON object, with no introductory text, commentary, or Markdown fences (```json)."
     )
     user_request_prompt = f"""
-    Please generate a new recipe.
-    Skill Level MUST be suitable for: {user_skill}.
-    Primary Goal MUST be considered: {user_goal}.
-    Recipe Specific Request: {user_prompt}
+      Generate a new, unique recipe. Ensure the following constraints are met:
+
+      CRITERIA:
+      - Difficulty Level MUST be suitable for a '{user_skill}' user.
+      - Primary Cooking Goal MUST align with: {user_goal}.
+      - Cuisine/Style MUST satisfy the user's specific request.
+
+      RECIPE DETAILS:
+      - Name: Must be creative and descriptive.
+      - Ingredients: The list in the JSON string must be precise (e.g., '2 tbsp soy sauce').
+      - Instructions: Must be step-by-step and clear.
+
+      USER SPECIFIC REQUEST: {user_prompt}
     """
 
     # Bind the structured schema to the LLM call
