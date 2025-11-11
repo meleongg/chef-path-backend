@@ -12,12 +12,9 @@ from app.schemas import (
 )
 from jose import jwt
 from datetime import datetime, timedelta, timezone
+from scripts.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-SECRET_KEY = "your-secret-key"  # Replace with a secure key in production
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
-
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter()
 
 
 @router.post(

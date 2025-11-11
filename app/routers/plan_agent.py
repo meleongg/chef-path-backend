@@ -8,10 +8,7 @@ from app.models import User, WeeklyPlan
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
 
-router = APIRouter(
-    prefix="/plan",
-    tags=["Plan Generation"],
-)
+router = APIRouter()
 
 
 def get_weekly_plan_service(db: Session = Depends(get_db)) -> WeeklyPlanService:
