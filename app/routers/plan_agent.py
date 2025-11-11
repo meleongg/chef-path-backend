@@ -28,12 +28,12 @@ async def generate_user_plan_endpoint(
     based on user history and goals.
     """
 
-    # 1. Fetch user state (Needed for LangGraph's initial state)
+    # Fetch user state (Needed for LangGraph's initial state)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    # 2. Define the initial state for the LangGraph agent
+    # Define the initial state for the LangGraph agent
     # The agent starts with the user's latest input and profile data
     initial_state: PlanState = {
         "messages": [HumanMessage(content=initial_intent)],
@@ -44,7 +44,7 @@ async def generate_user_plan_endpoint(
     }
 
     try:
-        # 3. Invoke the LangGraph Agent
+        # Invoke the LangGraph Agent
         # The agent runs its entire cycle (retrieve, reason, critique, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(initial_state)
 

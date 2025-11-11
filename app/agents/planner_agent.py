@@ -13,6 +13,7 @@ from app.services.adaptive_planner import (
     get_recipe_candidates,
     generate_and_save_new_recipe,
 )
+from scripts.constants import GENERATIVE_MODEL
 import uuid
 
 
@@ -35,7 +36,6 @@ class PlanState(TypedDict):
 
 
 # --- Initialize Model and ToolExecutor ---
-# We use a powerful model for the Agent's reasoning (e.g., GPT-4o-mini is cost-effective)
 LLM = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 # Define the list of tools the agent can call

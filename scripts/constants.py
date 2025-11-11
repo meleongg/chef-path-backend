@@ -1,5 +1,7 @@
 # Embedding and vectorization configuration for ChefPath
 
+GENERATIVE_MODEL = "gpt-4o-mini"
+
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSION = 1536
 BATCH_SIZE = 50

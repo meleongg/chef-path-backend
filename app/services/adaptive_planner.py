@@ -48,11 +48,12 @@ class AdaptivePlannerService:
         exclude_ids: List[uuid.UUID],
         limit: int = 10,
         similarity_threshold: float = 0.7,
-    ) -> List[Recipe]:
+    ) -> List[tuple]:
         """
         Executes a HYBRID (Vector Search + SQL Filter) query.
         1. Ranks recipes by semantic similarity (Vector Search).
         2. Excludes recipes that the user has rated poorly (SQL NOT IN filter).
+        Returns a list of (Recipe, similarity_score) tuples.
         """
         query_vector = self.embeddings_client.embed_query(intent_query)
         exclusion_str_list = [str(uid) for uid in exclude_ids]
@@ -83,10 +84,14 @@ class AdaptivePlannerService:
             },
         ).all()
         candidate_ids = [row[0] for row in result]
-        final_recipes = self.db.scalars(
+        recipes_by_id = {r.id: r for r in self.db.scalars(
             select(Recipe).filter(Recipe.id.in_(candidate_ids))
-        ).all()
-        return final_recipes
+        ).all()}
+        # Return list of (Recipe, similarity_score) tuples, preserving order
+        return [
+            (recipes_by_id[row[0]], row[3])
+            for row in result if row[0] in recipes_by_id
+        ]
 
     def generate_weekly_plan(self, user_id: UUID) -> List[UUID]:
         """
@@ -113,7 +118,7 @@ def get_recipe_candidates(
     Use this tool to find the optimal candidates for a weekly meal plan.
     """
 
-    results: List[Recipe] = planner_service.get_recipe_candidates_hybrid(
+    results: List[tuple] = planner_service.get_recipe_candidates_hybrid(
         user_id=user_id,
         intent_query=intent_query,
         exclude_ids=exclude_ids,
@@ -127,8 +132,8 @@ def get_recipe_candidates(
 
     # Format the output into a clean string for the LLM's context window
     output_summary = "\n--- Recipe Candidates ---\n"
-    for i, recipe in enumerate(results):
-        output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {recipe.difficulty}, Score: [RETRIEVED SEMANTIC SCORE]\n"
+    for i, (recipe, score) in enumerate(results):
+        output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {getattr(recipe, 'difficulty', 'N/A')}, Score: {score:.3f}\n"
 
     return output_summary
 
