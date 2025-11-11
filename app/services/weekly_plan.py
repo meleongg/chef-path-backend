@@ -1,10 +1,10 @@
 import uuid
 import json
-from typing import List, Optional
+from typing import List
 from sqlalchemy.orm import Session
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from datetime import datetime, timezone
-from sqlalchemy import select, update, text
+from sqlalchemy import select
 
 
 class WeeklyPlanService:
@@ -12,7 +12,7 @@ class WeeklyPlanService:
         """Fetches all recipe IDs the user has rated poorly (used by the Agent to filter)."""
         # We define this logic based on your new feedback columns (difficulty_rating, etc.)
 
-        # MOCK/PLACEHOLDER: A real query would look like this:
+        # TODO: update exclusion criteria
         hard_recipes = db.scalars(
             select(UserRecipeProgress.recipe_id).filter(
                 (UserRecipeProgress.user_id == user.id)
@@ -55,9 +55,8 @@ class WeeklyPlanService:
         if len(completed_recipes) == len(week_recipes) and len(week_recipes) > 0:
             # All recipes completed, move to next week
             next_week = getattr(latest_progress, "week_number") + 1
-            return next_week  # One-week-at-a-time, no course duration limit
+            return next_week
         else:
-            # Still working on current week
             return getattr(latest_progress, "week_number")
 
     async def generate_weekly_plan(
@@ -89,8 +88,6 @@ class WeeklyPlanService:
             return existing_plan
 
         # Serialize the Recipe IDs for storage
-        # Your WeeklyPlan.recipe_ids column is TEXT, so we store the UUIDs as a JSON string.
-        # Ensure the UUID objects are converted to strings first.
         recipe_ids_str = json.dumps([str(uid) for uid in recipe_ids_from_agent])
 
         # Create the new plan record
