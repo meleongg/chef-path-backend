@@ -17,6 +17,7 @@ from app.schemas.adaptive_planner import (
     NewRecipeSchema,
 )
 from scripts.constants import EMBEDDING_MODEL
+from services.ai_tasks import process_single_recipe_embedding_sync
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
@@ -217,12 +218,9 @@ def generate_and_save_new_recipe(
             db.commit()
             db.refresh(new_recipe)
 
-            # --- TRIGGER VECTORIZATION (BACKGROUND TASK) ---
-            # In a real FastAPI app, you would use BackgroundTasks or a task queue here.
-            # For this context, we just log the required action.
-            print(
-                f"*** BACKGROUND TASK: Trigger vectorization for Recipe ID: {new_recipe.id} ***"
-            )
+            # --- SYNCHRONOUS VECTORIZATION (Blocking the API thread) ---
+            # TODO: use BackGround Tasks for optimization
+            process_single_recipe_embedding_sync(new_recipe.id, db)
 
         return f"Successfully generated and saved recipe '{new_recipe.name}' with ID {new_recipe.id}. It is now available for the planner."
 
