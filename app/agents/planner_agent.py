@@ -7,8 +7,8 @@ from langchain_core.messages import (
     AIMessage,
 )
 from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolExecutor
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
 from app.services.adaptive_planner import (
     get_recipe_candidates,
     generate_and_save_new_recipe,
@@ -34,30 +34,33 @@ class PlanState(TypedDict):
     # Agent decision marker
     next_action: Literal["tool", "generate", "critique", "end"]
 
+    # User's preferred number of meals per week
+    frequency: int
 
-# --- Initialize Model and ToolExecutor ---
-LLM = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-# Define the list of tools the agent can call
+# init AI agent
+llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0)
 tools = [get_recipe_candidates, generate_and_save_new_recipe]
-
-# Bind the tools to the model (enabling function calling)
-LLM_WITH_TOOLS = LLM.bind_tools(tools)
-
-# ToolExecutor handles calling the Python functions when the LLM requests it
-tool_executor = ToolExecutor(tools)
+agent = create_agent(llm, tools=tools)
 
 
-# Node for LLM reasoning and Tool Invocation
+# main LLM agent reasoning node
 def call_agent_reasoner(state: PlanState) -> PlanState:
     """
     The main reasoning node. Prompts the LLM to decide the next action (Tool Call or Response).
     Includes error handling for network/API failures.
     """
-    user_prompt = f"User Goal: {state['user_goal']}. User ID: {state['user_id']}. Please generate 7 recipes. Do you need to use a tool?"
+    frequency = getattr(state, 'frequency')
+    user_prompt = (
+        f"User Goal: {state['user_goal']}. "
+        f"User ID: {state['user_id']}. "
+        f"Your task is to assemble a weekly meal plan (" + str(frequency) + " recipes) for the user. "
+        "Use the available tools to retrieve or generate recipes as needed. "
+        "Do you need to use a tool to proceed?"
+    )
 
     try:
-        response = LLM_WITH_TOOLS.invoke(
+        response = agent.invoke(
             [HumanMessage(content=user_prompt)] + state["messages"]
         )
 
@@ -72,7 +75,7 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
         return {"messages": [AIMessage(content=error_message)], "next_action": "end"}
 
 
-# Node for Tool Execution
+# tool execution node
 def execute_tool(state: PlanState) -> PlanState:
     """Execute the tool called by the LLM and return the result as a ToolMessage.
     Includes error handling for tool execution (e.g., database connection failure).
@@ -82,8 +85,7 @@ def execute_tool(state: PlanState) -> PlanState:
     tool_call = state["messages"][-1].tool_calls[0]
 
     try:
-        # Execute the Python function (get_recipe_candidates_hybrid)
-        tool_output = tool_executor.invoke(tool_call)
+        tool_output = agent.invoke(tool_call)
 
         return {
             "messages": [ToolMessage(content=tool_output, tool_call_id=tool_call["id"])]
@@ -98,7 +100,7 @@ def execute_tool(state: PlanState) -> PlanState:
             ]
         }
 
-
+# output node
 def finalize_plan_output(state: PlanState) -> PlanState:
     """
     Processes the final tool output (which should be the submitted plan)
@@ -177,7 +179,6 @@ planner_builder.add_node("agent", call_agent_reasoner)
 planner_builder.add_node("tool", execute_tool)
 planner_builder.add_node("finalizer", finalize_plan_output)
 
-# Define Entry Point
 planner_builder.set_entry_point("agent")
 
 # Define Conditional Edge: After the agent reasons, does it need a tool or is it done?

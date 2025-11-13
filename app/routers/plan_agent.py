@@ -41,6 +41,7 @@ async def generate_user_plan_endpoint(
         "user_goal": user.user_goal,
         "candidate_recipes": [],  # Start empty
         "next_action": "critique",  # Force the agent to start planning immediately
+        "frequency": user.frequency,
     }
 
     try:
