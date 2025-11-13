@@ -33,7 +33,7 @@ class PlanState(TypedDict):
     candidate_recipes: List[str]  # List of recipe IDs/summaries found by Vector Search
 
     # Agent decision marker
-    next_action: Literal["tool", "generate", "critique", "end"]
+    next_action: Literal["tool", "generate", "end"]
 
     # User's preferred number of meals per week
     frequency: int
