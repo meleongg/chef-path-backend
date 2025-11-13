@@ -1,4 +1,5 @@
 import operator
+import uuid
 from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import (
     AnyMessage,
@@ -14,7 +15,7 @@ from app.services.adaptive_planner import (
     generate_and_save_new_recipe,
 )
 from scripts.constants import GENERATIVE_MODEL
-import uuid
+from app.errors.planner_agent import NoRecipesSelectedError
 
 
 # --- Define the Graph State Schema ---
@@ -106,57 +107,16 @@ def finalize_plan_output(state: PlanState) -> PlanState:
     Processes the final tool output (which should be the submitted plan)
     and updates the PlanState with the final list of UUIDs.
     """
-    last_message = state["messages"][-1]
+    # assume recipes are provided (as a result of previous graph nodes)
+    final_selections = state.get("candidate_recipes", [])
 
-    # Check if the last action was a successful tool submission
-    if last_message.type == "tool_message" and last_message.content.startswith(
-        "Selection complete"
-    ):
+    if not final_selections:
+        # throw custom error if no recipes returned
+        raise NoRecipesSelectedError("No candidate recipes were selected by the agent. Cannot finalize plan.")
 
-        # 1. Find the ToolCall that generated this ToolMessage
-        # This requires searching the message history for the corresponding tool call request.
+    print(f"✅ Finalizer found {len(final_selections)} recipes to commit.")
 
-        # Simplified: We assume the agent successfully used the FinalPlanOutput tool
-        # and its output is now available in the state's messages.
-
-        # --- (This is the most complex part of LangGraph) ---
-        # The easiest method is often to force the LLM to always output a structured object
-        # in the *penultimate* step of its reasoning.
-
-        # Since the FINAL TOOL CALL returns clean UUIDs, we assume the parsing works:
-
-        # MOCK BYPASS: We assume the desired list of UUIDs is found in the final tool output's JSON
-
-        # The most reliable way is to ensure the final tool returns JSON containing the key: 'final_recipe_ids'
-        # The parsing function would need to safely load that JSON.
-
-        # Since that is still too complex for a standard response, we will rely on
-        # a simplified check that the plan service can handle:
-
-        # --- NEW Logic ---
-        # Find the actual final recipe IDs returned by the agent
-        # We assume the agent has populated the 'candidate_recipes' field earlier.
-
-        final_selections = state.get("candidate_recipes", [])
-
-        # Ensure we return a clean list of UUIDs, even if they are placeholders now
-        if not final_selections:
-            # Fallback: if the agent failed to populate candidates, ensure the API doesn't crash.
-            final_selections = [uuid.uuid4() for _ in range(7)]
-
-        print(f"✅ Finalizer found {len(final_selections)} recipes to commit.")
-
-        # The key change: The state must return the final UUIDs
-        return {"candidate_recipes": final_selections}
-
-    else:
-        # If the graph didn't end with a clean tool output, it's an error state or needs more reasoning.
-        # For simplicity, we force the flow to use the candidate list it already generated.
-        return {
-            "candidate_recipes": state.get(
-                "candidate_recipes", [uuid.uuid4() for _ in range(7)]
-            )
-        }
+    return {"candidate_recipes": final_selections}
 
 
 # Conditional Router (The Edges Logic)
