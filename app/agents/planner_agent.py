@@ -118,8 +118,7 @@ def finalize_plan_output(state: PlanState) -> PlanState:
 
     return {"candidate_recipes": final_selections}
 
-
-# Conditional Router (The Edges Logic)
+# conditional router
 def route_agent_action(state: PlanState) -> str:
     """Determines the next step based on the Agent's last message."""
 
@@ -134,7 +133,6 @@ def route_agent_action(state: PlanState) -> str:
 # --- Build the Graph ---
 planner_builder = StateGraph(PlanState)
 
-# Add Nodes
 planner_builder.add_node("agent", call_agent_reasoner)
 planner_builder.add_node("tool", execute_tool)
 planner_builder.add_node("finalizer", finalize_plan_output)
