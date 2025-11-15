@@ -85,3 +85,62 @@ async def generate_user_plan_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent Planning Critical Error: {e}",
         )
+
+@router.post("/chat/{user_id}", response_model=WeeklyPlan)
+async def chat_modify_plan_endpoint(
+    user_id: uuid.UUID,
+    user_message: str,
+    plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Handles mid-cycle plan tweaks via chat. Loads current plan and state,
+    invokes the LangGraph agent for plan modification, and updates the plan.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    last_plan = (
+        db.query(WeeklyPlan)
+        .filter(WeeklyPlan.user_id == user_id)
+        .order_by(WeeklyPlan.week_number.desc())
+        .first()
+    )
+    if not last_plan:
+        raise HTTPException(status_code=404, detail="No existing weekly plan found.")
+
+    # Load previous chat/messages and plan state (placeholder, adjust as needed)
+    previous_state: PlanState = {
+        "messages": [],  # TODO: Load from persistent storage or DB if you have chat history
+        "user_id": user.id,
+        "user_goal": user.user_goal,
+        "candidate_recipes": last_plan.recipe_ids,  # Or however you store them
+        "frequency": user.frequency,
+    }
+    # Add the new user message
+    previous_state["messages"].append(HumanMessage(content=user_message))
+
+    try:
+        # Run the agent for plan modification
+        updated_state: PlanState = AdaptivePlannerAgent.invoke(previous_state)
+        updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])
+
+        if not updated_recipe_ids:
+            raise ValueError("No recipes selected after plan modification.")
+
+        # Update the current plan in the DB
+        last_plan.recipe_ids = updated_recipe_ids
+        db.commit()
+        db.refresh(last_plan)
+
+        return last_plan
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Agent Plan Modification Error: {e}",
+        )
