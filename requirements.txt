@@ -11,3 +11,4 @@ alembic
 pgvector
 openai
 langchain-openai
+langchain-community

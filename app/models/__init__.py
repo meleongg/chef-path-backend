@@ -6,16 +6,16 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     Boolean,
+    Index
 )
 from sqlalchemy.dialects.postgresql import UUID, TEXT
 from pgvector.sqlalchemy import Vector
 import uuid
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
+from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
-
 
 class User(Base):
     __tablename__ = "users"
@@ -97,3 +97,26 @@ class UserRecipeProgress(Base):
     # Enhanced feedback for AI
     satisfaction_rating = Column(Integer, nullable=True)  # 1-5 rating
     difficulty_rating = Column(Integer, nullable=True)  # 1-5 rating
+
+class LangGraphCheckpoint(Base):
+    """
+    Model for storing LangGraph Agent state checkpoints.
+    Required for enabling persistence in the plan modification cycle.
+    """
+    __tablename__ = "langgraph_checkpoints"
+
+    # The ID of the conversation thread (e.g., your weekly_plans.id UUID)
+    thread_id = Column(String(36), primary_key=True, index=True)
+
+    # The version of the checkpoint (Allows multiple checkpoints per thread)
+    checkpoint_id = Column(String(36), primary_key=True)
+
+    # The serialized state of the graph (JSON/BLOB)
+    state = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Add a composite index for fast lookups by thread ID
+    __table_args__ = (
+        Index('idx_langgraph_thread_ts', thread_id, created_at.desc()),
+    )
