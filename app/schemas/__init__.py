@@ -122,3 +122,7 @@ class ProgressSummary(BaseModel):
     current_week: int
     completion_rate: float
     skill_progression: str
+
+
+class GeneralChatInput(BaseModel):
+    user_message: str

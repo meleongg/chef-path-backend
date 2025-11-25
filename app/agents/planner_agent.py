@@ -14,7 +14,7 @@ from app.services.adaptive_planner import (
     get_recipe_candidates,
     generate_and_save_new_recipe,
 )
-from scripts.constants import GENERATIVE_MODEL
+from app.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
 from .checkpoint_setup import CHECKPOINT_SAVER
 
@@ -52,19 +52,19 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
     The main reasoning node. Prompts the LLM to decide the next action (Tool Call or Response).
     Includes error handling for network/API failures.
     """
-    frequency = getattr(state, 'frequency')
+    frequency = getattr(state, "frequency")
     user_prompt = (
         f"User Goal: {state['user_goal']}. "
         f"User ID: {state['user_id']}. "
-        f"Your task is to assemble a weekly meal plan (" + str(frequency) + " recipes) for the user. "
+        f"Your task is to assemble a weekly meal plan ("
+        + str(frequency)
+        + " recipes) for the user. "
         "Use the available tools to retrieve or generate recipes as needed. "
         "Do you need to use a tool to proceed?"
     )
 
     try:
-        response = agent.invoke(
-            [HumanMessage(content=user_prompt)] + state["messages"]
-        )
+        response = agent.invoke([HumanMessage(content=user_prompt)] + state["messages"])
 
         if response.tool_calls:
             return {"messages": [response], "next_action": "tool"}
@@ -102,6 +102,7 @@ def execute_tool(state: PlanState) -> PlanState:
             ]
         }
 
+
 # output node
 def finalize_plan_output(state: PlanState) -> PlanState:
     """
@@ -113,11 +114,14 @@ def finalize_plan_output(state: PlanState) -> PlanState:
 
     if not final_selections:
         # throw custom error if no recipes returned
-        raise NoRecipesSelectedError("No candidate recipes were selected by the agent. Cannot finalize plan.")
+        raise NoRecipesSelectedError(
+            "No candidate recipes were selected by the agent. Cannot finalize plan."
+        )
 
     print(f"✅ Finalizer found {len(final_selections)} recipes to commit.")
 
     return {"candidate_recipes": final_selections}
+
 
 # conditional router
 def route_agent_action(state: PlanState) -> str:

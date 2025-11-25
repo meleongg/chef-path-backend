@@ -12,7 +12,7 @@ from app.schemas import (
 )
 from jose import jwt
 from datetime import datetime, timedelta, timezone
-from scripts.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter()
 

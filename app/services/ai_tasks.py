@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from langchain_openai import OpenAIEmbeddings
 from app.models import Recipe
-from scripts.constants import EMBEDDING_MODEL
+from app.constants import EMBEDDING_MODEL
+
 
 def process_single_recipe_embedding_sync(recipe_id: uuid.UUID, db: Session):
     """
@@ -14,9 +15,7 @@ def process_single_recipe_embedding_sync(recipe_id: uuid.UUID, db: Session):
     embeddings_client = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
     # fetch recipe data
-    recipe = db.scalars(
-        select(Recipe).filter(Recipe.id == recipe_id)
-    ).first()
+    recipe = db.scalars(select(Recipe).filter(Recipe.id == recipe_id)).first()
 
     if not recipe or not recipe.content_text:
         print(f"Vectorization skipped: Recipe {recipe_id} content missing.")

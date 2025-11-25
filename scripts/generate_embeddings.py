@@ -14,7 +14,7 @@ sys.path.insert(0, project_root)
 from app.database import engine
 from app.models import Recipe
 from langchain_openai import OpenAIEmbeddings
-from scripts.constants import EMBEDDING_MODEL, BATCH_SIZE
+from app.constants import EMBEDDING_MODEL, BATCH_SIZE
 
 load_dotenv()
 
@@ -68,9 +68,7 @@ def generate_embeddings_for_recipes():
             db_session.commit()
             print(f"  -> Batch {i // BATCH_SIZE + 1} saved successfully.")
             time.sleep(0.5)
-        print(
-            f"\n🎉 Vectorization complete! Total recipes processed: {total_processed}"
-        )
+        print(f"\n🎉 Vectorization complete! Total recipes processed: {total_processed}")
     except Exception as e:
         db_session.rollback()
         print(f"❌ Critical error during vectorization. Rolling back batch: {e}")

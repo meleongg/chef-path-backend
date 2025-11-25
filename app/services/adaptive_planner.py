@@ -16,7 +16,7 @@ from app.schemas.adaptive_planner import (
     FinalPlanOutput,
     NewRecipeSchema,
 )
-from scripts.constants import EMBEDDING_MODEL
+from app.constants import EMBEDDING_MODEL
 from services.ai_tasks import process_single_recipe_embedding_sync
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
