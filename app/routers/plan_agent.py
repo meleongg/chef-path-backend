@@ -1,18 +1,55 @@
-import uuid
 import json
-from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from app.constants import GENERATIVE_MODEL
+from typing import Annotated, List, Dict
+from fastapi import APIRouter, Depends, Body, HTTPException, status
 from sqlalchemy.orm import Session
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
+from app.schemas import GeneralChatInput
 
 router = APIRouter()
 
+
 def get_weekly_plan_service(db: Session = Depends(get_db)) -> WeeklyPlanService:
     return WeeklyPlanService(db=db)
+
+
+@router.post("/general/{user_id}", response_model=Dict[str, str])
+async def casual_chat_endpoint(
+    user_id: uuid.UUID, chat_input: GeneralChatInput = Body(..., embed=True)
+):
+    """
+    Handles general knowledge questions using a low-cost LLM (Stateless).
+    Bypasses the expensive LangGraph Agent and RAG tools.
+    """
+    try:
+        llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
+
+        prompt = (
+            "You are ChefPath, a friendly and experienced cooking assistant. "
+            "Your primary directives are: "
+            "1. Be helpful, concise, and professional. "
+            "2. Stick strictly to the topic of cooking, ingredients, techniques, or kitchen facts. "
+            "3. Limit your response to a maximum of 150 words. Do not provide disclaimers or commentary. "
+            "Answer the user's question directly and clearly."
+            f"Question: {chat_input.user_message}"
+        )
+
+        response = llm.invoke(prompt)
+
+        return {"response": response.content}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Error communicating with the general knowledge AI.",
+        )
+
 
 @router.post("/generate/{user_id}", response_model=WeeklyPlan)
 async def generate_user_plan_endpoint(
@@ -43,12 +80,19 @@ async def generate_user_plan_endpoint(
     update_week_number = 1
     if last_plan:
         # Check progress for the *last* week number
-        week_progress = db.query(UserRecipeProgress).filter(
-            UserRecipeProgress.user_id == user_id,
-            UserRecipeProgress.week_number == last_plan.week_number,
-        ).all()
+        week_progress = (
+            db.query(UserRecipeProgress)
+            .filter(
+                UserRecipeProgress.user_id == user_id,
+                UserRecipeProgress.week_number == last_plan.week_number,
+            )
+            .all()
+        )
         # This checks if all recipes started for that week are marked 'completed'
-        all_completed = all(getattr(p, "status", None) == "completed" for p in week_progress) and week_progress
+        all_completed = (
+            all(getattr(p, "status", None) == "completed" for p in week_progress)
+            and week_progress
+        )
 
         # If last week is done, generate the next number. Otherwise, overwrite the current week.
         if all_completed:
@@ -70,10 +114,7 @@ async def generate_user_plan_endpoint(
     try:
         # the agent runs its entire cycle (retrieve, reason, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(
-            initial_state,
-            config={
-                "configurable": {"thread_id": thread_id_str}
-            }
+            initial_state, config={"configurable": {"thread_id": thread_id_str}}
         )
         final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
 
@@ -99,6 +140,7 @@ async def generate_user_plan_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent Planning Critical Error: {e}",
         )
+
 
 @router.post("/chat/{user_id}", response_model=WeeklyPlan)
 async def chat_modify_plan_endpoint(
@@ -142,7 +184,7 @@ async def chat_modify_plan_endpoint(
             config={
                 # This tells the SQLALchemySaver which thread to load/save
                 "configurable": {"thread_id": thread_id_str}
-            }
+            },
         )
         updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])
 
