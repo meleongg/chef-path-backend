@@ -3,7 +3,6 @@ import uuid
 from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import UUID
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from langchain_core.tools import tool
@@ -95,13 +94,6 @@ class AdaptivePlannerService:
         return [
             (recipes_by_id[row[0]], row[3]) for row in result if row[0] in recipes_by_id
         ]
-
-    def generate_weekly_plan(self, user_id: UUID) -> List[UUID]:
-        """
-        Orchestrates the entire week's plan generation.
-        """
-        # Placeholder for future LangGraph logic
-        return []
 
 
 planner_service = AdaptivePlannerService(db=CONNECTION_STRING)
