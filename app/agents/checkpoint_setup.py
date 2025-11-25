@@ -1,7 +1,6 @@
 import os
 from langgraph.checkpoint.postgres import PostgresSaver
 from dotenv import load_dotenv
-from app.database import engine
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
