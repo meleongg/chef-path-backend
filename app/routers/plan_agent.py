@@ -1,4 +1,5 @@
 import uuid
+import json
 from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -94,8 +95,8 @@ async def chat_modify_plan_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Handles mid-cycle plan tweaks via chat. Loads current plan and state,
-    invokes the LangGraph agent for plan modification, and updates the plan.
+    Handles mid-cycle plan tweaks via chat. Loads the persistent state
+    from the langgraph_checkpoints table, invokes the Agent, and updates the plan.
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -110,27 +111,36 @@ async def chat_modify_plan_endpoint(
     if not last_plan:
         raise HTTPException(status_code=404, detail="No existing weekly plan found.")
 
-    # Load previous chat/messages and plan state (placeholder, adjust as needed)
-    previous_state: PlanState = {
-        "messages": [],  # TODO: Load from persistent storage or DB if you have chat history
-        "user_id": user.id,
+    # for checkpointing
+    thread_id_str = str(user_id)
+
+    new_input: PlanState = {
+        "messages": [HumanMessage(content=user_message)],
+        "user_id": user_id,
         "user_goal": user.user_goal,
-        "candidate_recipes": last_plan.recipe_ids,  # Or however you store them
         "frequency": user.frequency,
+        # candidate_recipes, messages loaded from checkpoint
     }
-    # Add the new user message
-    previous_state["messages"].append(HumanMessage(content=user_message))
 
     try:
         # Run the agent for plan modification
-        updated_state: PlanState = AdaptivePlannerAgent.invoke(previous_state)
+        updated_state: PlanState = AdaptivePlannerAgent.invoke(
+            new_input,
+            config={
+                # This tells the SQLALchemySaver which thread to load/save
+                "configurable": {"thread_id": thread_id_str}
+            }
+        )
         updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])
 
         if not updated_recipe_ids:
             raise ValueError("No recipes selected after plan modification.")
 
-        # Update the current plan in the DB
-        last_plan.recipe_ids = updated_recipe_ids
+        # serialize the Recipe IDs back to JSON string for database storage
+        recipe_ids_str = json.dumps([str(uid) for uid in updated_recipe_ids])
+
+        # update the current plan in the DB
+        last_plan.recipe_ids = recipe_ids_str
         db.commit()
         db.refresh(last_plan)
 

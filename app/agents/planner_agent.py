@@ -16,6 +16,7 @@ from app.services.adaptive_planner import (
 )
 from scripts.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
+from .checkpoint_setup import CHECKPOINT_SAVER
 
 
 # --- Define the Graph State Schema ---
@@ -150,4 +151,4 @@ planner_builder.add_edge("tool", "agent")
 planner_builder.add_edge("finalizer", END)
 
 # Compile the final graph (The runnable agent)
-AdaptivePlannerAgent = planner_builder.compile()
+AdaptivePlannerAgent = planner_builder.compile(checkpointer=CHECKPOINT_SAVER)
