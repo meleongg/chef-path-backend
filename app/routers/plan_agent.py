@@ -30,44 +30,57 @@ async def generate_user_plan_endpoint(
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
+    exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(user, db)
+
+    last_plan = (
+        db.query(WeeklyPlan)
+        .filter(WeeklyPlan.user_id == user_id)
+        .order_by(WeeklyPlan.week_number.desc())
+        .first()
+    )
+
+    # Determine if the last plan is fully completed.
+    update_week_number = 1
+    if last_plan:
+        # Check progress for the *last* week number
+        week_progress = db.query(UserRecipeProgress).filter(
+            UserRecipeProgress.user_id == user_id,
+            UserRecipeProgress.week_number == last_plan.week_number,
+        ).all()
+        # This checks if all recipes started for that week are marked 'completed'
+        all_completed = all(getattr(p, "status", None) == "completed" for p in week_progress) and week_progress
+
+        # If last week is done, generate the next number. Otherwise, overwrite the current week.
+        if all_completed:
+            update_week_number = last_plan.week_number + 1
+        else:
+            update_week_number = last_plan.week_number
+
     initial_state: PlanState = {
         "messages": [HumanMessage(content=initial_intent)],
         "user_id": user.id,
         "user_goal": user.user_goal,
         "candidate_recipes": [],
         "frequency": user.frequency,
+        "exclude_ids": exclusion_ids,
     }
+
+    thread_id_str = str(user.id)
 
     try:
         # the agent runs its entire cycle (retrieve, reason, generate)
-        final_state: PlanState = AdaptivePlannerAgent.invoke(initial_state)
+        final_state: PlanState = AdaptivePlannerAgent.invoke(
+            initial_state,
+            config={
+                "configurable": {"thread_id": thread_id_str}
+            }
+        )
         final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
 
         if not final_recipe_ids:
             raise ValueError(
                 "The Adaptive Planner Agent failed to select final recipe IDs."
             )
-
-        last_plan = (
-            db.query(WeeklyPlan)
-            .filter(WeeklyPlan.user_id == user_id)
-            .order_by(WeeklyPlan.week_number.desc())
-            .first()
-        )
-
-        # determine if the last plan is completed (all recipes done)
-        update_week_number = 1
-        if last_plan:
-            week_progress = db.query(UserRecipeProgress).filter(
-                UserRecipeProgress.user_id == user_id,
-                UserRecipeProgress.week_number == last_plan.week_number,
-            ).all()
-            all_completed = all(getattr(p, "status", None) == "completed" for p in week_progress) and week_progress
-
-            if all_completed:
-                update_week_number = last_plan.week_number + 1
-            else:
-                update_week_number = last_plan.week_number
 
         new_plan = plan_service.generate_weekly_plan(
             user=user,
