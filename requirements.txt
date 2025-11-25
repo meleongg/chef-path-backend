@@ -11,4 +11,4 @@ alembic
 pgvector
 openai
 langchain-openai
-langchain-community
+langgraph-checkpoint-postgres
