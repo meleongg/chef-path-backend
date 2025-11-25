@@ -12,10 +12,17 @@ Usage:
 
 import sys
 import asyncio
-from pathlib import Path
-from datetime import datetime, timezone
+import os
 import uuid
 import json
+from pathlib import Path
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
+
+TEST_EMAIL = os.environ.get("TEST_EMAIL")
+TEST_PASSWORD = os.environ.get("TEST_PASSWORD")
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -56,9 +63,9 @@ async def seed_database(clear_first: bool = False):
             id=uuid.uuid4(),
             first_name="First",
             last_name="Last",
-            email="test@gmail.com",
+            email=TEST_EMAIL,
             hashed_password=hash_password(
-                "testpassword"
+                TEST_PASSWORD
             ),  # Set a known password for login testing
             cuisine="Chinese",
             frequency=3,
