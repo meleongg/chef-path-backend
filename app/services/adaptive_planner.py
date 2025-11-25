@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import UUID
 from langchain_openai import OpenAIEmbeddings
-from langchain_core.vectorstores import PGVector
+from langchain_postgres import PGVector
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -16,14 +16,14 @@ from app.schemas.adaptive_planner import (
     FinalPlanOutput,
     NewRecipeSchema,
 )
-from app.constants import EMBEDDING_MODEL
-from services.ai_tasks import process_single_recipe_embedding_sync
+from app.constants import EMBEDDING_MODEL, GENERATIVE_MODEL
+from app.services.ai_tasks import process_single_recipe_embedding_sync
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
     raise EnvironmentError("DATABASE_URL not set for Adaptive Planner Service.")
 
-GENERATIVE_LLM = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+GENERATIVE_LLM = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.7)
 
 
 class AdaptivePlannerService:
@@ -37,9 +37,9 @@ class AdaptivePlannerService:
             model=EMBEDDING_MODEL
         )
         self.vector_store: PGVector = PGVector(
-            embedding_function=self.embeddings_client,
+            embeddings=self.embeddings_client,
             collection_name="recipes",
-            connection_string=CONNECTION_STRING,
+            connection=CONNECTION_STRING,
         )
 
     def get_recipe_candidates_hybrid(

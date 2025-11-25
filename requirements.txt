@@ -12,3 +12,4 @@ pgvector
 openai
 langchain-openai
 langgraph-checkpoint-postgres
+langchain-postgres

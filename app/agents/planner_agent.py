@@ -16,7 +16,7 @@ from app.services.adaptive_planner import (
 )
 from app.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
-from .checkpoint_setup import CHECKPOINT_SAVER
+from app.agents.checkpoint_setup import CHECKPOINT_SAVER
 
 
 # --- Define the Graph State Schema ---

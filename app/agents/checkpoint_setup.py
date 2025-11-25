@@ -1,9 +1,15 @@
+import os
 from langgraph.checkpoint.postgres import PostgresSaver
+from dotenv import load_dotenv
 from app.database import engine
 
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+CHECKPOINT_SAVER = None
 try:
     # This tells LangGraph to use the PostgreSQL connection pool for state persistence.
-    CHECKPOINT_SAVER = PostgresSaver.from_engine(engine)
+    CHECKPOINT_SAVER = PostgresSaver(DATABASE_URL)
     print("✅ SQLAlchemySaver initialized successfully.")
 
 except Exception as e:

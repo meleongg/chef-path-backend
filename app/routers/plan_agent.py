@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
-from app.schemas import GeneralChatInput
+from app.schemas import WeeklyPlanResponse, GeneralChatInput
 
 router = APIRouter()
 
@@ -51,7 +51,7 @@ async def casual_chat_endpoint(
         )
 
 
-@router.post("/generate/{user_id}", response_model=WeeklyPlan)
+@router.post("/generate/{user_id}", response_model=WeeklyPlanResponse)
 async def generate_user_plan_endpoint(
     user_id: uuid.UUID,
     initial_intent: str,
@@ -142,7 +142,7 @@ async def generate_user_plan_endpoint(
         )
 
 
-@router.post("/chat/{user_id}", response_model=WeeklyPlan)
+@router.post("/chat/{user_id}", response_model=WeeklyPlanResponse)
 async def chat_modify_plan_endpoint(
     user_id: uuid.UUID,
     user_message: str,
