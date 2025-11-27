@@ -124,5 +124,9 @@ class ProgressSummary(BaseModel):
     skill_progression: str
 
 
+class PlanGenerationInput(BaseModel):
+    initial_intent: str
+
+
 class GeneralChatInput(BaseModel):
     user_message: str

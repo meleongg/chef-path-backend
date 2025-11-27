@@ -1,16 +1,17 @@
 import os
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from dotenv import load_dotenv
 
 load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
 
-CHECKPOINT_SAVER = None
-try:
-    # This tells LangGraph to use the PostgreSQL connection pool for state persistence.
-    CHECKPOINT_SAVER = PostgresSaver(DATABASE_URL)
-    print("✅ SQLAlchemySaver initialized successfully.")
 
-except Exception as e:
-    print(f"❌ ERROR: Failed to initialize SQLAlchemySaver. Check DB connection: {e}")
-    # In a real app, you'd fail gracefully or use a non-persistent saver for dev.
+def initialize_postres_saver():
+    """Creates the AsyncPostgresSaver instance (but does NOT call setup())."""
+
+    DB_URI = os.environ.get("DATABASE_URL")
+    # --- SANITIZE URI (Remove SQLAlchemy dialect prefix) ---
+    # PostgresSaver expects postgresql:// or postgres://, NOT postgresql+psycopg2://
+    if DB_URI and DB_URI.startswith("postgresql+psycopg://"):
+        DB_URI = DB_URI.replace("postgresql+psycopg://", "postgresql://")
+
+    return AsyncPostgresSaver.from_conn_string(DB_URI)

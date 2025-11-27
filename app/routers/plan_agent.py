@@ -10,18 +10,18 @@ from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
-from app.schemas import WeeklyPlanResponse, GeneralChatInput
+from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
 
 router = APIRouter()
 
 
-def get_weekly_plan_service(db: Session = Depends(get_db)) -> WeeklyPlanService:
-    return WeeklyPlanService(db=db)
+def get_weekly_plan_service() -> WeeklyPlanService:
+    return WeeklyPlanService()
 
 
 @router.post("/general/{user_id}", response_model=Dict[str, str])
 async def casual_chat_endpoint(
-    user_id: uuid.UUID, chat_input: GeneralChatInput = Body(..., embed=True)
+    user_id: uuid.UUID, chat_input: GeneralChatInput = Body(...)
 ):
     """
     Handles general knowledge questions using a low-cost LLM (Stateless).
@@ -54,7 +54,7 @@ async def casual_chat_endpoint(
 @router.post("/generate/{user_id}", response_model=WeeklyPlanResponse)
 async def generate_user_plan_endpoint(
     user_id: uuid.UUID,
-    initial_intent: str,
+    input: PlanGenerationInput = Body(...),
     plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
     db: Session = Depends(get_db),
 ):
@@ -101,7 +101,7 @@ async def generate_user_plan_endpoint(
             update_week_number = last_plan.week_number
 
     initial_state: PlanState = {
-        "messages": [HumanMessage(content=initial_intent)],
+        "messages": [HumanMessage(content=input.initial_intent)],
         "user_id": user.id,
         "user_goal": user.user_goal,
         "candidate_recipes": [],
@@ -112,13 +112,18 @@ async def generate_user_plan_endpoint(
     thread_id_str = str(user.id)
 
     try:
+        print("Initial state:", initial_state)
+        print("Thread ID:", thread_id_str)
         # the agent runs its entire cycle (retrieve, reason, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(
             initial_state, config={"configurable": {"thread_id": thread_id_str}}
         )
+        print("Final state:", final_state)
         final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
+        print("Final recipe IDs:", final_recipe_ids)
 
         if not final_recipe_ids:
+            print("No recipe IDs returned by agent.")
             raise ValueError(
                 "The Adaptive Planner Agent failed to select final recipe IDs."
             )
@@ -129,12 +134,16 @@ async def generate_user_plan_endpoint(
             recipe_ids_from_agent=final_recipe_ids,
             db=db,
         )
+        print("New plan:", new_plan)
 
         return new_plan
 
     except ValueError as e:
+        print("ValueError:", e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        print("Exception:", e)
+        print("DB type at error:", type(db))
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -145,7 +154,7 @@ async def generate_user_plan_endpoint(
 @router.post("/chat/{user_id}", response_model=WeeklyPlanResponse)
 async def chat_modify_plan_endpoint(
     user_id: uuid.UUID,
-    user_message: str,
+    input: GeneralChatInput = Body(...),
     plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
     db: Session = Depends(get_db),
 ):
@@ -170,7 +179,7 @@ async def chat_modify_plan_endpoint(
     thread_id_str = str(user_id)
 
     new_input: PlanState = {
-        "messages": [HumanMessage(content=user_message)],
+        "messages": [HumanMessage(content=input.user_message)],
         "user_id": user_id,
         "user_goal": user.user_goal,
         "frequency": user.frequency,
@@ -182,7 +191,7 @@ async def chat_modify_plan_endpoint(
         updated_state: PlanState = AdaptivePlannerAgent.invoke(
             new_input,
             config={
-                # This tells the SQLALchemySaver which thread to load/save
+                # This tells the PostgresSaver which thread to load/save
                 "configurable": {"thread_id": thread_id_str}
             },
         )

@@ -16,7 +16,7 @@ from app.services.adaptive_planner import (
 )
 from app.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
-from app.agents.checkpoint_setup import CHECKPOINT_SAVER
+from app.agents.global_state import CHECKPOINT_SAVER_INSTANCE
 
 
 # --- Define the Graph State Schema ---
@@ -52,7 +52,7 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
     The main reasoning node. Prompts the LLM to decide the next action (Tool Call or Response).
     Includes error handling for network/API failures.
     """
-    frequency = getattr(state, "frequency")
+    frequency = state["frequency"]
     user_prompt = (
         f"User Goal: {state['user_goal']}. "
         f"User ID: {state['user_id']}. "
@@ -73,7 +73,6 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
 
     except Exception as e:
         error_message = f"AI Error: Unable to communicate with the planning engine due to a network issue. Please try again. ({type(e).__name__})"
-        print(f"Agent Reasoning Failed: {e}")
         return {"messages": [AIMessage(content=error_message)], "next_action": "end"}
 
 
@@ -88,6 +87,7 @@ def execute_tool(state: PlanState) -> PlanState:
 
     try:
         tool_output = agent.invoke(tool_call)
+        print("[execute_tool] Tool output:", tool_output)
 
         return {
             "messages": [ToolMessage(content=tool_output, tool_call_id=tool_call["id"])]
@@ -95,7 +95,6 @@ def execute_tool(state: PlanState) -> PlanState:
 
     except Exception as e:
         error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}"
-        print(f"Tool Execution Failed: {e}")
         return {
             "messages": [
                 ToolMessage(content=error_content, tool_call_id=tool_call["id"])
@@ -117,8 +116,6 @@ def finalize_plan_output(state: PlanState) -> PlanState:
         raise NoRecipesSelectedError(
             "No candidate recipes were selected by the agent. Cannot finalize plan."
         )
-
-    print(f"✅ Finalizer found {len(final_selections)} recipes to commit.")
 
     return {"candidate_recipes": final_selections}
 
@@ -155,4 +152,4 @@ planner_builder.add_edge("tool", "agent")
 planner_builder.add_edge("finalizer", END)
 
 # Compile the final graph (The runnable agent)
-AdaptivePlannerAgent = planner_builder.compile(checkpointer=CHECKPOINT_SAVER)
+AdaptivePlannerAgent = planner_builder.compile(checkpointer=CHECKPOINT_SAVER_INSTANCE)

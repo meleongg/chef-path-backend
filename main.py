@@ -3,13 +3,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_tables
 from app.routers import users, recipes, weekly_plans, feedback, auth, plan_agent
+from app.agents.checkpoint_setup import initialize_postres_saver
+from app.agents.global_state import CHECKPOINT_SAVER_INSTANCE
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Create database tables
     create_tables()
-    yield
+
+    # 1. Get the context manager object from the factory
+    saver_context_manager = initialize_postres_saver()
+
+    # 2. Enter the context manager using 'async with' to get the instance
+    async with saver_context_manager as checkpointer_instance:
+        CHECKPOINT_SAVER_INSTANCE = checkpointer_instance
+        await checkpointer_instance.setup()
+        print("✅ LangGraph Checkpoint tables created/verified.")
+
+        # Yield control to the application
+        yield
     # Shutdown: Clean up resources (if needed)
 
 
