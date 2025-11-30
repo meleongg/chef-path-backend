@@ -5,7 +5,6 @@ from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from langchain_openai import OpenAIEmbeddings
-from langchain_postgres import PGVector
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -37,11 +36,6 @@ class AdaptivePlannerService:
         self.db: Session = db
         self.embeddings_client: OpenAIEmbeddings = OpenAIEmbeddings(
             model=EMBEDDING_MODEL
-        )
-        self.vector_store: PGVector = PGVector(
-            embeddings=self.embeddings_client,
-            collection_name="recipes",
-            connection=CONNECTION_STRING,
         )
 
     def get_recipe_candidates_hybrid(

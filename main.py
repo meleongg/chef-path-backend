@@ -3,8 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_tables
 from app.routers import users, recipes, weekly_plans, feedback, auth, plan_agent
-from app.agents.checkpoint_setup import initialize_postres_saver
-from app.agents.global_state import CHECKPOINT_SAVER_INSTANCE
+from app.agents.checkpoint_setup import initialize_postgres_saver
+import app.agents.global_state as global_state
 
 
 @asynccontextmanager
@@ -12,18 +12,21 @@ async def lifespan(app: FastAPI):
     # Startup: Create database tables
     create_tables()
 
-    # 1. Get the context manager object from the factory
-    saver_context_manager = initialize_postres_saver()
+    # Initialize PostgresSaver for checkpointing
+    checkpointer = initialize_postgres_saver()
 
-    # 2. Enter the context manager using 'async with' to get the instance
-    async with saver_context_manager as checkpointer_instance:
-        CHECKPOINT_SAVER_INSTANCE = checkpointer_instance
-        await checkpointer_instance.setup()
-        print("✅ LangGraph Checkpoint tables created/verified.")
+    # Set the global checkpoint saver instance
+    global_state.CHECKPOINT_SAVER_INSTANCE = checkpointer
+    print("✅ Checkpoint saver is active and ready.")
 
-        # Yield control to the application
-        yield
-    # Shutdown: Clean up resources (if needed)
+    # Yield control to the application
+    yield
+
+    # Shutdown: Close the connection properly
+    print("🔄 Shutting down checkpoint saver...")
+    if checkpointer and hasattr(checkpointer, "conn"):
+        checkpointer.conn.close()
+        print("✅ Checkpoint connection closed.")
 
 
 app = FastAPI(title="ChefPath Backend", version="1.0.0", lifespan=lifespan)
