@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
@@ -49,7 +50,7 @@ class AdaptivePlannerService:
         intent_query: str,
         exclude_ids: List[uuid.UUID],
         limit: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,
     ) -> List[tuple]:
         """
         Executes a HYBRID (Vector Search + SQL Filter) query.
@@ -145,7 +146,7 @@ def get_recipe_candidates(
     intent_query: str,
     user_id: uuid.UUID,
     exclude_ids: List[uuid.UUID] = None,
-    similarity_threshold: float = 0.3,
+    similarity_threshold: float = 0.5,
     limit: int = 10,
 ) -> str:
     """
@@ -186,6 +187,13 @@ def get_recipe_candidates(
         for i, (recipe, score) in enumerate(results):
             output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {getattr(recipe, 'difficulty', 'N/A')}, Score: {score:.3f}\n"
 
+        # Add summary line about shortfall
+        shortfall = limit - len(results)
+        if shortfall > 0:
+            output_summary += f"\n⚠️ Found {len(results)}/{limit} recipes. Need {shortfall} more recipe(s) to meet the requested {limit} meals.\n"
+        else:
+            output_summary += f"\n✓ Found all {len(results)} requested recipes.\n"
+
         print(f"[TOOL: get_recipe_candidates] ✅ Found {len(results)} recipes")
         print(
             f"[TOOL: get_recipe_candidates] Similarity scores: {[f'{score:.3f}' for _, score in results]}"
@@ -209,12 +217,46 @@ def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
 
 @tool
 def generate_and_save_new_recipe(
-    user_prompt: str, user_skill: str, user_goal: str
+    recipe_description: str, user_id: uuid.UUID = None
 ) -> str:
     """
-    Generates a new, custom recipe based on the user's specific request.
-    Saves the new recipe to the database and flags it for vectorization.
+    Generates a new, custom recipe based on the recipe description.
+    Saves the new recipe to the database with embeddings for vector search.
+
+    Args:
+        recipe_description: Detailed description of the desired recipe (include cuisine, difficulty, goal)
+        user_id: Optional UUID of the user requesting the recipe
+
+    Returns:
+        A success message with the newly created recipe ID in format: "Successfully generated recipe: <uuid>"
     """
+    print("\n[TOOL: generate_and_save_new_recipe] === CALLED ===")
+    print(f"[TOOL] recipe_description: {recipe_description}")
+    print(f"[TOOL] user_id: {user_id}")
+
+    # Extract skill level and goal from description or use defaults
+    # Simple heuristic: look for keywords
+    user_skill = "medium"
+    if "beginner" in recipe_description.lower() or "easy" in recipe_description.lower():
+        user_skill = "beginner"
+    elif (
+        "advanced" in recipe_description.lower()
+        or "expert" in recipe_description.lower()
+        or "hard" in recipe_description.lower()
+    ):
+        user_skill = "advanced"
+
+    # Extract goal from description
+    user_goal = "general"
+    if "technique" in recipe_description.lower():
+        user_goal = "techniques"
+    elif (
+        "health" in recipe_description.lower()
+        or "nutrition" in recipe_description.lower()
+    ):
+        user_goal = "health"
+    elif "budget" in recipe_description.lower() or "cost" in recipe_description.lower():
+        user_goal = "budget"
 
     # Define the Recipe Generation Prompt
     system_prompt = (
@@ -233,16 +275,19 @@ def generate_and_save_new_recipe(
 
       RECIPE DETAILS:
       - Name: Must be creative and descriptive.
-      - Ingredients: The list in the JSON string must be precise (e.g., '2 tbsp soy sauce').
+      - Ingredients: Provide a list where EACH ingredient has TWO fields:
+        * "name": The ingredient name (e.g., "Cashew nuts", "Onions", "Cumin seeds")
+        * "measure": The quantity/measurement (e.g., "12", "½ tbsp", "3 sliced thinly")
       - Instructions: Must be step-by-step and clear.
 
-      USER SPECIFIC REQUEST: {user_prompt}
+      USER SPECIFIC REQUEST: {recipe_description}
     """
 
     # Bind the structured schema to the LLM call
     structured_llm = GENERATIVE_LLM.with_structured_output(NewRecipeSchema)
 
     try:
+        print("[TOOL] Invoking LLM to generate recipe...")
         # Invoke the LLM to generate the structured recipe object
         generated_recipe_data: NewRecipeSchema = structured_llm.invoke(
             [
@@ -251,33 +296,63 @@ def generate_and_save_new_recipe(
             ]
         )
 
+        print(f"[TOOL] LLM generated recipe: {generated_recipe_data.name}")
+
         # Save to Database and Trigger Vectorization
         with Session(
             bind=engine
         ) as db:  # Use direct engine bind for a transactional script
-            # Ensure the ingredients field is converted correctly
-            ingredients_text = generated_recipe_data.ingredients
+            # Convert ingredients list to JSON string in the correct format
+            ingredients_list = [
+                {"name": item.name, "measure": item.measure}
+                for item in generated_recipe_data.ingredients
+            ]
+            ingredients_json = json.dumps(ingredients_list)
+
+            # Create content_text for embedding generation (flatten ingredients for text)
+            ingredients_text = " ".join(
+                [
+                    f"{item.name} {item.measure}"
+                    for item in generated_recipe_data.ingredients
+                ]
+            )
+            content_text = f"{generated_recipe_data.name} {generated_recipe_data.cuisine} {ingredients_text} {generated_recipe_data.instructions}"
 
             # Create the final recipe object
             new_recipe = Recipe(
                 name=generated_recipe_data.name,
                 cuisine=generated_recipe_data.cuisine,
-                ingredients=ingredients_text,
+                ingredients=ingredients_json,  # Store as JSON string
                 instructions=generated_recipe_data.instructions,
                 difficulty=generated_recipe_data.difficulty,
                 is_ai_generated=True,  # Flag this as an LLM creation
-                # content_text is left NULL, triggering the background vectorization
+                external_id=f"ai-generated-{uuid.uuid4()}",  # Unique external_id per recipe
+                content_text=content_text,  # Add content_text for embeddings
             )
 
             db.add(new_recipe)
             db.commit()
             db.refresh(new_recipe)
 
+            print(f"[TOOL] Recipe saved to database with ID: {new_recipe.id}")
+
             # --- SYNCHRONOUS VECTORIZATION (Blocking the API thread) ---
-            # TODO: use BackGround Tasks for optimization
+            print("[TOOL] Generating embeddings for vector search...")
             process_single_recipe_embedding_sync(new_recipe.id, db)
 
-        return f"Successfully generated and saved recipe '{new_recipe.name}' with ID {new_recipe.id}. It is now available for the planner."
+            print(
+                f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully"
+            )
+
+            # Return in format that execute_tool can parse
+            return f"Successfully generated recipe: {new_recipe.id}\nName: {new_recipe.name}\nCuisine: {new_recipe.cuisine}\nDifficulty: {new_recipe.difficulty}"
+
+    except Exception as e:
+        print(f"[TOOL: generate_and_save_new_recipe] ❌ Error: {type(e).__name__}: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return f"Failed to generate recipe: {type(e).__name__}: {str(e)}"
 
     except Exception as e:
         print(f"Error during generative recipe creation: {e}")

@@ -116,7 +116,11 @@ async def generate_user_plan_endpoint(
         print("Thread ID:", thread_id_str)
         # the agent runs its entire cycle (retrieve, reason, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(
-            initial_state, config={"configurable": {"thread_id": thread_id_str}}
+            initial_state,
+            config={
+                "configurable": {"thread_id": thread_id_str},
+                "recursion_limit": 25,
+            },
         )
         print("Final state:", final_state)
         final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
@@ -183,7 +187,6 @@ async def chat_modify_plan_endpoint(
         "user_id": user_id,
         "user_goal": user.user_goal,
         "frequency": user.frequency,
-        # candidate_recipes, messages loaded from checkpoint
     }
 
     try:
@@ -192,7 +195,8 @@ async def chat_modify_plan_endpoint(
             new_input,
             config={
                 # This tells the PostgresSaver which thread to load/save
-                "configurable": {"thread_id": thread_id_str}
+                "configurable": {"thread_id": thread_id_str},
+                "recursion_limit": 20,
             },
         )
         updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])

@@ -1,5 +1,6 @@
 import operator
 import uuid
+import re
 from typing import TypedDict, Annotated, List, Literal
 from langchain_core.messages import AnyMessage, ToolMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -39,7 +40,7 @@ class PlanState(TypedDict):
 # System prompt for the AI agent
 SYSTEM_PROMPT = """You are ChefPath, an expert adaptive meal planning assistant.
 
-Your goal is to find recipes for the user by calling tools. Follow this workflow:
+Your goal is to find or generate recipes for the user by calling tools. Follow this workflow:
 
 CONTEXT PROVIDED TO YOU:
 - user_id: The UUID of the current user (available in the conversation context)
@@ -50,28 +51,58 @@ WORKFLOW:
 Step 1: Call get_recipe_candidates tool
 - CRITICAL: Pass the user_id EXACTLY as provided in the context as a UUID object, not as a string placeholder
 - Do NOT pass similarity_threshold parameter (let it use the default)
-- Only pass: intent_query (your search string), user_id (the actual UUID), exclude_ids (if any), and limit (number requested)
+- Only pass: intent_query (your search string), user_id (the actual UUID), exclude_ids (if any), and limit (set to frequency)
 - Create a search query based on user preferences (cuisine, difficulty, goals)
-- This will return recipes with IDs or "No suitable recipes found"
+- IMPORTANT: This tool automatically populates candidate_recipes state with the found recipe IDs
+- The tool will also return a message indicating if there's a shortfall (e.g., "Found 2/3 recipes. Need 1 more")
 
-Step 2: Handle the search result
-- If recipes are found: Call finalize_recipe_selection with those recipe IDs
-  - Extract IDs from format "ID: <uuid>"
-  - Pass exactly the number of IDs requested
-  - IMPORTANT: Even if the difficulty doesn't perfectly match the user's level, SELECT THE RECIPES ANYWAY
-  - The system will handle difficulty appropriately - your job is to select recipes that match cuisine/goal preferences
-- If NO recipes found (empty result) after 2 attempts: Respond with a helpful message
-  - Explain that no matching recipes exist in our database
-  - Suggest the user adjust their criteria (different cuisine, difficulty, etc.)
-  - Or offer to generate a custom recipe (use generate_and_save_new_recipe sparingly)
+Step 2: Check the candidate_recipes state after search
+- After get_recipe_candidates returns, check the candidate_recipes list in the state
+- Compare len(candidate_recipes) with frequency (requested number of meals)
+
+- If len(candidate_recipes) >= frequency:
+  ✅ You have enough recipes!
+  - Call finalize_recipe_selection with the recipe IDs from candidate_recipes
+  - CRITICAL: Do NOT generate additional recipes
+  - Do NOT generate extra recipes due to difficulty mismatch, skill level, or any other reason
+  - Accept the recipes found, even if difficulty doesn't perfectly match user skill level
+
+- If len(candidate_recipes) < frequency:
+  ⚠️ Not enough recipes - need to generate more
+  a) Calculate how many more needed: shortfall = frequency - len(candidate_recipes)
+  b) Call generate_and_save_new_recipe ONCE for ONE missing recipe
+     - Base it on: user preferences, cuisine, difficulty level, and goal
+     - Example: "A beginner-friendly Mexican taco recipe focusing on building confidence"
+     - The tool will automatically add the new recipe ID to candidate_recipes
+  c) After generation, check if len(candidate_recipes) >= frequency
+  d) If still short, generate one more recipe (repeat until len(candidate_recipes) == frequency)
+  e) Once you have enough, call finalize_recipe_selection with ALL IDs from candidate_recipes
+
+- If NO recipes found (len(candidate_recipes) == 0):
+  a) Try one more search with a broader/different query
+  b) If still no results, generate ALL needed recipes one at a time
+  c) Call finalize_recipe_selection with all generated IDs
+
+Step 3: Recipe Generation Guidelines (when using generate_and_save_new_recipe)
+- Always include: cuisine, difficulty, user_goal in your recipe_description
+- Make descriptions specific and actionable
+- Generate recipes ONE AT A TIME (don't call multiple times in parallel)
+- After each generation, the new recipe ID is automatically added to candidate_recipes
+- Check candidate_recipes count after each generation before generating more
 
 RULES:
 - NEVER use placeholder strings like "user_id" or "user_id_placeholder" - use the ACTUAL UUID from context
 - Do NOT override similarity_threshold - omit it from your tool call
-- ALWAYS call finalize_recipe_selection if get_recipe_candidates returns ANY recipes (even if difficulty doesn't match perfectly)
-- Only give up and respond with text if get_recipe_candidates returns "No suitable recipes found" after 2 attempts
-- Always prefer existing recipes over generating new ones
+- ALWAYS prefer existing recipes over generating new ones
+- candidate_recipes state is automatically populated by tools - you don't need to manually extract IDs
+- Check len(candidate_recipes) vs frequency BEFORE deciding to generate recipes
+- Only generate recipes when len(candidate_recipes) < frequency (genuine shortfall)
+- Generate recipes ONE AT A TIME, checking the count after each generation
+- ALWAYS call finalize_recipe_selection as the final step with ALL IDs from candidate_recipes
 - Keep responses concise and actionable
+- Do NOT generate extra recipes due to difficulty mismatch if you already have frequency recipes
+- If a tool call fails, check len(candidate_recipes) >= frequency before retrying
+- Do NOT retry failed recipe generation more than once - if it fails, proceed with what you have
 
 The system will present the final plan after finalize_recipe_selection succeeds."""
 
@@ -136,6 +167,7 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
 def execute_tool(state: PlanState) -> PlanState:
     """Execute the tool called by the LLM and return the result as a ToolMessage.
     Includes error handling for tool execution (e.g., database connection failure).
+    Handles both recipe search and recipe generation tools.
     """
     print("\n[execute_tool] === ENTERED ===")
     print(
@@ -144,7 +176,8 @@ def execute_tool(state: PlanState) -> PlanState:
 
     # The last message contains the tool call request from the LLM
     tool_call = state["messages"][-1].tool_calls[0]
-    print(f"[execute_tool] Tool name: {tool_call.get('name', 'unknown')}")
+    tool_name = tool_call.get("name")
+    print(f"[execute_tool] Tool name: {tool_name}")
     print(f"[execute_tool] Tool args: {tool_call.get('args', {})}")
 
     try:
@@ -153,8 +186,7 @@ def execute_tool(state: PlanState) -> PlanState:
         print(f"[execute_tool] Tool result type: {type(result)}")
         print(f"[execute_tool] Tool result: {result}")
 
-        # Check if finalize_recipe_selection was called
-        tool_name = tool_call.get("name")
+        # Handle finalize_recipe_selection - marks the end of the workflow
         if tool_name == "finalize_recipe_selection":
             recipe_ids = tool_call.get("args", {}).get("recipe_ids", [])
             print(f"[execute_tool] Finalizing selection with recipe_ids: {recipe_ids}")
@@ -164,6 +196,57 @@ def execute_tool(state: PlanState) -> PlanState:
                 "next_action": "end",
             }
 
+        # Handle get_recipe_candidates - extract IDs and populate state
+        elif tool_name == "get_recipe_candidates":
+            # Extract recipe IDs from the tool response
+            tool_message = result["messages"][0]
+            content = tool_message.content
+
+            # Parse all recipe IDs from format "ID: <uuid>"
+            found_ids = re.findall(r"ID: ([a-f0-9\-]+)", content)
+
+            if found_ids:
+                print(f"[execute_tool] Found {len(found_ids)} recipe IDs from search")
+                print(f"[execute_tool] Recipe IDs: {found_ids}")
+
+                # Populate candidate_recipes state so agent knows what we have
+                return {
+                    "messages": result["messages"],
+                    "candidate_recipes": found_ids,
+                }
+            else:
+                print(f"[execute_tool] ⚠️ No recipe IDs found in search response")
+                return result
+
+        # Handle generate_and_save_new_recipe - adds to candidates
+        elif tool_name == "generate_and_save_new_recipe":
+            # Extract the newly generated recipe ID from the tool response
+            tool_message = result["messages"][0]
+            content = tool_message.content
+
+            # Parse the recipe ID from response format "Successfully generated recipe: <uuid>"
+            match = re.search(r"Successfully generated recipe: ([a-f0-9\-]+)", content)
+
+            if match:
+                new_recipe_id = match.group(1)
+                print(f"[execute_tool] Generated new recipe ID: {new_recipe_id}")
+
+                # Add to existing candidates (don't replace them)
+                current_candidates = state.get("candidate_recipes", [])
+                updated_candidates = current_candidates + [new_recipe_id]
+
+                print(f"[execute_tool] Updated candidate_recipes: {updated_candidates}")
+                return {
+                    "messages": result["messages"],
+                    "candidate_recipes": updated_candidates,
+                }
+            else:
+                print(
+                    f"[execute_tool] ⚠️ Could not extract recipe ID from generation response"
+                )
+                return result
+
+        # For other tools, just return the messages
         print(
             f"[execute_tool] Current candidate_recipes AFTER tool: {state.get('candidate_recipes', [])}"
         )
@@ -171,7 +254,7 @@ def execute_tool(state: PlanState) -> PlanState:
         return result
 
     except Exception as e:
-        error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}"
+        error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}: {str(e)}"
         return {
             "messages": [
                 ToolMessage(content=error_content, tool_call_id=tool_call["id"])
