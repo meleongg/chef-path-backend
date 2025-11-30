@@ -11,6 +11,7 @@ from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
 from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
+from app.services.intent_classifier import classify_message_intent
 
 router = APIRouter()
 
@@ -48,6 +49,90 @@ async def casual_chat_endpoint(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Error communicating with the general knowledge AI.",
+        )
+
+
+@router.post("/adaptive_chat/{user_id}", response_model=Dict[str, str])
+async def adaptive_chat_endpoint(
+    user_id: uuid.UUID,
+    chat_input: GeneralChatInput = Body(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Adaptive chat endpoint that classifies intent and routes accordingly.
+
+    Routes:
+    - general_knowledge → Fast, cheap Q&A (stateless)
+    - plan_modification → Expensive LangGraph agent (stateful)
+    - analytics → Medium-cost query endpoint (future implementation)
+
+    Returns:
+        response: The AI's response to the user
+        intent: The classified intent (for frontend routing/UX)
+    """
+    try:
+        # Step 1: Classify the user's intent (cheap, fast operation)
+        print(f"[AdaptiveChat] Classifying message: {chat_input.user_message[:50]}...")
+        intent = classify_message_intent(chat_input.user_message)
+        print(f"[AdaptiveChat] Classified as: {intent}")
+
+        # Step 2: Route based on intent
+        if intent == "general_knowledge":
+            print(f"[AdaptiveChat] Routing to: stateless Q&A")
+            # Use cheap, stateless Q&A
+            llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
+            prompt = (
+                "You are ChefPath, a friendly and experienced cooking assistant. "
+                "Your primary directives are: "
+                "1. Be helpful, concise, and professional. "
+                "2. Stick strictly to the topic of cooking, ingredients, techniques, or kitchen facts. "
+                "3. Limit your response to a maximum of 150 words. Do not provide disclaimers or commentary. "
+                "Answer the user's question directly and clearly. "
+                f"Question: {chat_input.user_message}"
+            )
+            response = llm.invoke(prompt)
+            return {
+                "response": response.content,
+                "intent": intent,
+            }
+
+        elif intent == "plan_modification":
+            print(f"[AdaptiveChat] Routing to: plan modification (stateful agent)")
+            # This will require the expensive LangGraph agent
+            # For now, return a placeholder that indicates frontend should show confirmation UI
+            return {
+                "response": "I can help you modify your meal plan. This feature is coming soon!",
+                "intent": intent,
+                "requires_confirmation": "true",  # Signal to frontend
+            }
+
+        elif intent == "analytics":
+            print(f"[AdaptiveChat] Routing to: analytics")
+            # Future: Query user's progress/stats
+            return {
+                "response": "Analytics feature coming soon! You'll be able to track your progress here.",
+                "intent": intent,
+            }
+
+        else:
+            print(f"[AdaptiveChat] Routing to: fallback (general knowledge)")
+            # Fallback to general knowledge
+            llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
+            prompt = (
+                "You are ChefPath, a friendly and experienced cooking assistant. "
+                f"Question: {chat_input.user_message}"
+            )
+            response = llm.invoke(prompt)
+            return {
+                "response": response.content,
+                "intent": "general_knowledge",
+            }
+
+    except Exception as e:
+        print(f"[AdaptiveChat] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Error processing chat message: {str(e)}",
         )
 
 
