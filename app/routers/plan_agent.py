@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
-from app.agents.planner_agent import AdaptivePlannerAgent, PlanState
+from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
 from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
 from app.services.intent_classifier import classify_message_intent
 
@@ -201,16 +201,16 @@ async def generate_user_plan_endpoint(
         print("Initial state:", initial_state)
         print("Thread ID:", thread_id_str)
 
-        # Get checkpointer from app.state
+        # Get checkpointer from app.state and compile agent with it
         checkpointer = request.app.state.checkpoint_saver
+        agent = get_agent_with_checkpointer(checkpointer)
 
         # the agent runs its entire cycle (retrieve, reason, generate)
-        final_state: PlanState = AdaptivePlannerAgent.invoke(
+        final_state: PlanState = agent.invoke(
             initial_state,
             config={
                 "configurable": {"thread_id": thread_id_str},
                 "recursion_limit": 25,
-                "checkpointer": checkpointer,  # Pass checkpointer from app.state
             },
         )
         print("Final state:", final_state)
@@ -282,17 +282,17 @@ async def chat_modify_plan_endpoint(
     }
 
     try:
-        # Get checkpointer from app.state
+        # Get checkpointer from app.state and compile agent with it
         checkpointer = request.app.state.checkpoint_saver
+        agent = get_agent_with_checkpointer(checkpointer)
 
         # Run the agent for plan modification
-        updated_state: PlanState = AdaptivePlannerAgent.invoke(
+        updated_state: PlanState = agent.invoke(
             new_input,
             config={
                 # This tells the PostgresSaver which thread to load/save
                 "configurable": {"thread_id": thread_id_str},
                 "recursion_limit": 20,
-                "checkpointer": checkpointer,  # Pass checkpointer from app.state
             },
         )
         updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])

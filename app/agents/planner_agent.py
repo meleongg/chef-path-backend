@@ -353,6 +353,11 @@ planner_builder.add_edge("tool", "agent")
 
 planner_builder.add_edge("finalizer", END)
 
-# Compile the graph without a checkpointer
-# The checkpointer will be passed at runtime via config["checkpointer"]
-AdaptivePlannerAgent = planner_builder.compile()
+# Don't compile yet - we need the checkpointer first
+# Export the builder so endpoints can compile with their checkpointer
+PlannerGraphBuilder = planner_builder
+
+
+def get_agent_with_checkpointer(checkpointer):
+    """Compile the agent graph with the provided checkpointer."""
+    return planner_builder.compile(checkpointer=checkpointer)
