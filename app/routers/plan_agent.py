@@ -2,7 +2,7 @@ import json
 import uuid
 from app.constants import GENERATIVE_MODEL
 from typing import Annotated, List, Dict
-from fastapi import APIRouter, Depends, Body, HTTPException, status
+from fastapi import APIRouter, Depends, Body, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
@@ -140,6 +140,7 @@ async def adaptive_chat_endpoint(
 async def generate_user_plan_endpoint(
     user_id: uuid.UUID,
     input: PlanGenerationInput = Body(...),
+    request: Request = None,
     plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
     db: Session = Depends(get_db),
 ):
@@ -199,12 +200,17 @@ async def generate_user_plan_endpoint(
     try:
         print("Initial state:", initial_state)
         print("Thread ID:", thread_id_str)
+
+        # Get checkpointer from app.state
+        checkpointer = request.app.state.checkpoint_saver
+
         # the agent runs its entire cycle (retrieve, reason, generate)
         final_state: PlanState = AdaptivePlannerAgent.invoke(
             initial_state,
             config={
                 "configurable": {"thread_id": thread_id_str},
                 "recursion_limit": 25,
+                "checkpointer": checkpointer,  # Pass checkpointer from app.state
             },
         )
         print("Final state:", final_state)
@@ -244,6 +250,7 @@ async def generate_user_plan_endpoint(
 async def chat_modify_plan_endpoint(
     user_id: uuid.UUID,
     input: GeneralChatInput = Body(...),
+    request: Request = None,
     plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
     db: Session = Depends(get_db),
 ):
@@ -275,6 +282,9 @@ async def chat_modify_plan_endpoint(
     }
 
     try:
+        # Get checkpointer from app.state
+        checkpointer = request.app.state.checkpoint_saver
+
         # Run the agent for plan modification
         updated_state: PlanState = AdaptivePlannerAgent.invoke(
             new_input,
@@ -282,6 +292,7 @@ async def chat_modify_plan_endpoint(
                 # This tells the PostgresSaver which thread to load/save
                 "configurable": {"thread_id": thread_id_str},
                 "recursion_limit": 20,
+                "checkpointer": checkpointer,  # Pass checkpointer from app.state
             },
         )
         updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])

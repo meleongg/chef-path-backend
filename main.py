@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_tables
 from app.routers import users, recipes, weekly_plans, feedback, auth, plan_agent
 from app.agents.checkpoint_setup import initialize_postgres_saver
-import app.agents.global_state as global_state
 
 
 @asynccontextmanager
@@ -15,8 +14,8 @@ async def lifespan(app: FastAPI):
     # Initialize PostgresSaver for checkpointing
     checkpointer = initialize_postgres_saver()
 
-    # Set the global checkpoint saver instance
-    global_state.CHECKPOINT_SAVER_INSTANCE = checkpointer
+    # Set on app.state
+    app.state.checkpoint_saver = checkpointer
     print("✅ Checkpoint saver is active and ready.")
 
     # Yield control to the application

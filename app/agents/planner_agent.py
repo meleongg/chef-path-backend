@@ -13,7 +13,6 @@ from app.services.adaptive_planner import (
 )
 from app.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
-from app.agents.global_state import CHECKPOINT_SAVER_INSTANCE
 
 
 # --- Define the Graph State Schema ---
@@ -354,5 +353,6 @@ planner_builder.add_edge("tool", "agent")
 
 planner_builder.add_edge("finalizer", END)
 
-# Compile the final graph (The runnable agent)
-AdaptivePlannerAgent = planner_builder.compile(checkpointer=CHECKPOINT_SAVER_INSTANCE)
+# Compile the graph without a checkpointer
+# The checkpointer will be passed at runtime via config["checkpointer"]
+AdaptivePlannerAgent = planner_builder.compile()
