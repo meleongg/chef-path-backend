@@ -2,12 +2,30 @@ import uuid
 import json
 from typing import List
 from sqlalchemy.orm import Session
-from app.models import User, WeeklyPlan, UserRecipeProgress
+from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe
 from datetime import datetime, timezone
 from sqlalchemy import select
 
 
 class WeeklyPlanService:
+    def load_recipes_for_plan(self, plan: WeeklyPlan, db: Session) -> WeeklyPlan:
+        """Load the full Recipe objects for a WeeklyPlan and attach them as a property."""
+        recipe_ids = json.loads(plan.recipe_ids)
+        recipe_uuids = [uuid.UUID(rid) for rid in recipe_ids]
+
+        # Query all recipes in the correct order
+        recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_uuids)).all()
+
+        # Sort recipes to match the order in recipe_ids
+        recipes_dict = {str(r.id): r for r in recipes}
+        ordered_recipes = [
+            recipes_dict[rid] for rid in recipe_ids if rid in recipes_dict
+        ]
+
+        # Attach as a dynamic attribute (Pydantic will pick it up)
+        plan.recipes = ordered_recipes
+        return plan
+
     def get_user_exclusion_ids(self, user: User, db: Session) -> List[uuid.UUID]:
         """Fetches all recipe IDs the user has rated poorly (used by the Agent to filter)."""
         # We define this logic based on your new feedback columns (difficulty_rating, etc.)
@@ -71,6 +89,9 @@ class WeeklyPlanService:
         by the Adaptive Planner Agent.
         """
 
+        # Serialize the Recipe IDs for storage
+        recipe_ids_str = json.dumps([str(uid) for uid in recipe_ids_from_agent])
+
         existing_plan = (
             db.query(WeeklyPlan)
             .filter(
@@ -85,10 +106,8 @@ class WeeklyPlanService:
             db.commit()
             db.refresh(existing_plan)
 
-            return existing_plan
-
-        # Serialize the Recipe IDs for storage
-        recipe_ids_str = json.dumps([str(uid) for uid in recipe_ids_from_agent])
+            # Load the full recipe objects before returning
+            return self.load_recipes_for_plan(existing_plan, db)
 
         # Create the new plan record
         new_plan = WeeklyPlan(
@@ -104,7 +123,8 @@ class WeeklyPlanService:
         db.commit()
         db.refresh(new_plan)
 
-        return new_plan
+        # Load the full recipe objects before returning
+        return self.load_recipes_for_plan(new_plan, db)
 
     def adapt_skill_level(self, user: User, week_number: int, db: Session) -> str:
         """Adapt skill level based on user feedback from previous weeks"""

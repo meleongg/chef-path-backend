@@ -14,9 +14,11 @@ from app.schemas.adaptive_planner import (
     HybridSearchInput,
     FinalPlanOutput,
     NewRecipeSchema,
+    RecipeSelectionInput,
 )
 from app.constants import EMBEDDING_MODEL, GENERATIVE_MODEL
 from app.services.ai_tasks import process_single_recipe_embedding_sync
+from app.database import SessionLocal
 
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
@@ -57,32 +59,62 @@ class AdaptivePlannerService:
         """
         query_vector = self.embeddings_client.embed_query(intent_query)
         exclusion_str_list = [str(uid) for uid in exclude_ids]
-        raw_sql_query = text(
-            f"""
-            SELECT
-                r.id,
-                r.name,
-                r.content_text,
-                (1 - (r.embedding <=> :query_vector)) AS similarity_score
-            FROM
-                recipes r
-            WHERE
-                r.id NOT IN :exclusion_list
-                AND (1 - (r.embedding <=> :query_vector)) > :similarity_threshold
-            ORDER BY
-                similarity_score DESC
-            LIMIT :limit;
-        """
-        )
-        result = self.db.execute(
-            raw_sql_query,
-            {
-                "query_vector": query_vector,
-                "exclusion_list": tuple(exclusion_str_list),
-                "limit": limit,
-                "similarity_threshold": similarity_threshold,
-            },
-        ).all()
+
+        # Convert list to string format for pgvector - embed directly in SQL
+        vector_str = f"'[{','.join(map(str, query_vector))}]'::vector"
+
+        # Build SQL query dynamically based on whether there are exclusions
+        if exclusion_str_list:
+            raw_sql_query = text(
+                f"""
+                SELECT
+                    r.id,
+                    r.name,
+                    r.content_text,
+                    (1 - (r.embedding <=> {vector_str})) AS similarity_score
+                FROM
+                    recipes r
+                WHERE
+                    r.id NOT IN :exclusion_list
+                    AND (1 - (r.embedding <=> {vector_str})) > :similarity_threshold
+                ORDER BY
+                    similarity_score DESC
+                LIMIT :limit;
+            """
+            )
+            result = self.db.execute(
+                raw_sql_query,
+                {
+                    "exclusion_list": tuple(exclusion_str_list),
+                    "limit": limit,
+                    "similarity_threshold": similarity_threshold,
+                },
+            ).all()
+        else:
+            # No exclusions - simpler query
+            raw_sql_query = text(
+                f"""
+                SELECT
+                    r.id,
+                    r.name,
+                    r.content_text,
+                    (1 - (r.embedding <=> {vector_str})) AS similarity_score
+                FROM
+                    recipes r
+                WHERE
+                    (1 - (r.embedding <=> {vector_str})) > :similarity_threshold
+                ORDER BY
+                    similarity_score DESC
+                LIMIT :limit;
+            """
+            )
+            result = self.db.execute(
+                raw_sql_query,
+                {
+                    "limit": limit,
+                    "similarity_threshold": similarity_threshold,
+                },
+            ).all()
         candidate_ids = [row[0] for row in result]
         recipes_by_id = {
             r.id: r
@@ -96,15 +128,24 @@ class AdaptivePlannerService:
         ]
 
 
-planner_service = AdaptivePlannerService(db=CONNECTION_STRING)
+@tool(args_schema=RecipeSelectionInput)
+def finalize_recipe_selection(recipe_ids: List[str]) -> str:
+    """
+    Call this tool to finalize your recipe selection for the weekly plan.
+    Provide a list of recipe IDs (as strings) that you've chosen.
+    """
+    print(f"\n[TOOL: finalize_recipe_selection] === CALLED ===")
+    print(f"[TOOL] recipe_ids: {recipe_ids}")
+    print(f"[TOOL] Number of recipes: {len(recipe_ids)}")
+    return f"Successfully selected {len(recipe_ids)} recipes for the weekly plan."
 
 
 @tool(args_schema=HybridSearchInput)
 def get_recipe_candidates(
     intent_query: str,
     user_id: uuid.UUID,
-    exclude_ids: List[uuid.UUID] = [],
-    similarity_threshold: float = 0.7,
+    exclude_ids: List[uuid.UUID] = None,
+    similarity_threshold: float = 0.3,
     limit: int = 10,
 ) -> str:
     """
@@ -112,25 +153,47 @@ def get_recipe_candidates(
     filtered by user-specific negative feedback and exclusion lists.
     Use this tool to find the optimal candidates for a weekly meal plan.
     """
+    print(f"\n[TOOL: get_recipe_candidates] === CALLED ===")
+    print(f"[TOOL] intent_query: {intent_query}")
+    print(f"[TOOL] user_id: {user_id}")
+    print(f"[TOOL] exclude_ids: {exclude_ids}")
+    print(f"[TOOL] similarity_threshold: {similarity_threshold}")
+    print(f"[TOOL] limit: {limit}")
 
-    results: List[tuple] = planner_service.get_recipe_candidates_hybrid(
-        user_id=user_id,
-        intent_query=intent_query,
-        exclude_ids=exclude_ids,
-        limit=limit,
-        similarity_threshold=similarity_threshold,
-    )
+    if exclude_ids is None:
+        exclude_ids = []
 
-    # Return the results as a string summary for the LLM to process
-    if not results:
-        return "No suitable recipes found based on the hybrid search criteria."
+    db = SessionLocal()
+    try:
+        service = AdaptivePlannerService(db=db)
+        results: List[tuple] = service.get_recipe_candidates_hybrid(
+            user_id=user_id,
+            intent_query=intent_query,
+            exclude_ids=exclude_ids,
+            limit=limit,
+            similarity_threshold=similarity_threshold,
+        )
 
-    # Format the output into a clean string for the LLM's context window
-    output_summary = "\n--- Recipe Candidates ---\n"
-    for i, (recipe, score) in enumerate(results):
-        output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {getattr(recipe, 'difficulty', 'N/A')}, Score: {score:.3f}\n"
+        # Return the results as a string summary for the LLM to process
+        if not results:
+            print(
+                f"[TOOL: get_recipe_candidates] ❌ No recipes found with similarity > {similarity_threshold}"
+            )
+            return "No suitable recipes found based on the hybrid search criteria."
 
-    return output_summary
+        # Format the output into a clean string for the LLM's context window
+        output_summary = "\n--- Recipe Candidates ---\n"
+        for i, (recipe, score) in enumerate(results):
+            output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {getattr(recipe, 'difficulty', 'N/A')}, Score: {score:.3f}\n"
+
+        print(f"[TOOL: get_recipe_candidates] ✅ Found {len(results)} recipes")
+        print(
+            f"[TOOL: get_recipe_candidates] Similarity scores: {[f'{score:.3f}' for _, score in results]}"
+        )
+        print(f"[TOOL: get_recipe_candidates] Returning: {output_summary[:200]}...")
+        return output_summary
+    finally:
+        db.close()
 
 
 @tool(args_schema=FinalPlanOutput)

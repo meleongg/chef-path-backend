@@ -128,7 +128,7 @@ async def generate_user_plan_endpoint(
                 "The Adaptive Planner Agent failed to select final recipe IDs."
             )
 
-        new_plan = plan_service.generate_weekly_plan(
+        new_plan = await plan_service.generate_weekly_plan(
             user=user,
             week_number=update_week_number,
             recipe_ids_from_agent=final_recipe_ids,
