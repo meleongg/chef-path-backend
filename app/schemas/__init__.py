@@ -100,7 +100,7 @@ class WeeklyPlanResponse(BaseModel):
 
 # Feedback schemas
 class FeedbackCreate(BaseModel):
-    recipe_id: int
+    recipe_id: UUID
     week_number: int
     feedback: str = Field(..., pattern="^(too_easy|just_right|too_hard)$")
 

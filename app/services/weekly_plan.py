@@ -40,6 +40,27 @@ class WeeklyPlanService:
 
         return hard_recipes
 
+    def _create_progress_entries(
+        self,
+        user_id: uuid.UUID,
+        week_number: int,
+        recipe_ids: List[uuid.UUID],
+        db: Session,
+    ) -> None:
+        """
+        Helper method to create UserRecipeProgress entries for a weekly plan.
+        Creates entries with status='not_started' for each recipe.
+        """
+        for recipe_id in recipe_ids:
+            progress_entry = UserRecipeProgress(
+                user_id=user_id,
+                recipe_id=recipe_id,
+                week_number=week_number,
+                status="not_started",
+                completed_at=None,
+            )
+            db.add(progress_entry)
+
     def get_current_week(self, user: User, db: Session) -> int:
         """Get the current week number for the user based on their progress"""
         # Get the latest completed week
@@ -87,6 +108,7 @@ class WeeklyPlanService:
         """
         Commits a new weekly plan to the database using the recipe list provided
         by the Adaptive Planner Agent.
+        Also creates UserRecipeProgress entries for each recipe in the plan.
         """
 
         # Serialize the Recipe IDs for storage
@@ -103,6 +125,18 @@ class WeeklyPlanService:
             # Update the existing plan's recipes with the agent's new list
             existing_plan.recipe_ids = recipe_ids_str
             db.add(existing_plan)
+
+            # Delete old progress entries for this week and create new ones
+            db.query(UserRecipeProgress).filter(
+                UserRecipeProgress.user_id == user.id,
+                UserRecipeProgress.week_number == week_number,
+            ).delete()
+
+            # Create progress entries for new recipe list
+            self._create_progress_entries(
+                user.id, week_number, recipe_ids_from_agent, db
+            )
+
             db.commit()
             db.refresh(existing_plan)
 
@@ -118,8 +152,14 @@ class WeeklyPlanService:
             is_unlocked=True,  # Auto-unlock the first plan
         )
 
-        # Commit the transaction
+        # Commit the plan first
         db.add(new_plan)
+        db.flush()  # Get the plan ID without committing
+
+        # Create progress entries for each recipe
+        self._create_progress_entries(user.id, week_number, recipe_ids_from_agent, db)
+
+        # Commit everything
         db.commit()
         db.refresh(new_plan)
 

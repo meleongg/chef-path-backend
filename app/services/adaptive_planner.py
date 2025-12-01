@@ -61,7 +61,9 @@ class AdaptivePlannerService:
         # Build SQL query dynamically based on whether there are exclusions
         if exclusion_str_list:
             # Create a comma-separated list of UUIDs for NOT IN clause
-            exclusion_placeholders = ", ".join([f"'{uid}'" for uid in exclusion_str_list])
+            exclusion_placeholders = ", ".join(
+                [f"'{uid}'" for uid in exclusion_str_list]
+            )
             raw_sql_query = text(
                 f"""
                 SELECT
