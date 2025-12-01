@@ -60,6 +60,8 @@ class AdaptivePlannerService:
 
         # Build SQL query dynamically based on whether there are exclusions
         if exclusion_str_list:
+            # Create a comma-separated list of UUIDs for NOT IN clause
+            exclusion_placeholders = ", ".join([f"'{uid}'" for uid in exclusion_str_list])
             raw_sql_query = text(
                 f"""
                 SELECT
@@ -70,7 +72,7 @@ class AdaptivePlannerService:
                 FROM
                     recipes r
                 WHERE
-                    r.id NOT IN :exclusion_list
+                    r.id NOT IN ({exclusion_placeholders})
                     AND (1 - (r.embedding <=> {vector_str})) > :similarity_threshold
                 ORDER BY
                     similarity_score DESC
@@ -80,7 +82,6 @@ class AdaptivePlannerService:
             result = self.db.execute(
                 raw_sql_query,
                 {
-                    "exclusion_list": tuple(exclusion_str_list),
                     "limit": limit,
                     "similarity_threshold": similarity_threshold,
                 },

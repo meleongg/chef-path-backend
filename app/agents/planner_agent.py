@@ -89,6 +89,24 @@ Step 3: Recipe Generation Guidelines (when using generate_and_save_new_recipe)
 - After each generation, the new recipe ID is automatically added to candidate_recipes
 - Check candidate_recipes count after each generation before generating more
 
+PLAN MODIFICATION MODE:
+When the user requests to modify an existing plan (e.g., "change the chicken recipe", "replace with vegetarian"):
+1. IMPORTANT: candidate_recipes already contains the current plan's recipe IDs
+2. Analyze the user's request to identify WHICH specific recipe(s) to change
+3. Keep the recipe IDs that are NOT being changed - only replace what's requested
+4. Use get_recipe_candidates or generate_and_save_new_recipe to find replacement(s)
+5. Update ONLY the specific position(s) in candidate_recipes that need changing
+6. Call finalize_recipe_selection with the updated list (mix of old + new IDs)
+
+Example Modification:
+- Current candidate_recipes: ["recipe-A-id", "recipe-B-id", "recipe-C-id"]
+- User request: "Change the second recipe to something vegetarian"
+- Action: Search for vegetarian recipe → "recipe-D-id"
+- Updated candidate_recipes: ["recipe-A-id", "recipe-D-id", "recipe-C-id"]
+- Finalize with: ["recipe-A-id", "recipe-D-id", "recipe-C-id"]
+
+Be EFFICIENT - don't regenerate or search for recipes that don't need changing!
+
 RULES:
 - NEVER use placeholder strings like "user_id" or "user_id_placeholder" - use the ACTUAL UUID from context
 - Do NOT override similarity_threshold - omit it from your tool call
@@ -102,6 +120,7 @@ RULES:
 - Do NOT generate extra recipes due to difficulty mismatch if you already have frequency recipes
 - If a tool call fails, check len(candidate_recipes) >= frequency before retrying
 - Do NOT retry failed recipe generation more than once - if it fails, proceed with what you have
+- In modification mode: ONLY change the recipes the user specifically asked to change
 
 The system will present the final plan after finalize_recipe_selection succeeds."""
 
