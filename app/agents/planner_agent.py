@@ -1,11 +1,14 @@
 import operator
 import uuid
 import re
+import os
 from typing import TypedDict, Annotated, List, Literal
+from dotenv import load_dotenv
 from langchain_core.messages import AnyMessage, ToolMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
+from langsmith import traceable
 from app.services.adaptive_planner import (
     get_recipe_candidates,
     generate_and_save_new_recipe,
@@ -13,6 +16,11 @@ from app.services.adaptive_planner import (
 )
 from app.constants import GENERATIVE_MODEL
 from app.errors.planner_agent import NoRecipesSelectedError
+
+load_dotenv()
+
+# Check if tracing is enabled
+TRACING_ENABLED = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
 
 
 # --- Define the Graph State Schema ---
@@ -35,6 +43,9 @@ class PlanState(TypedDict):
     # User's preferred number of meals per week
     frequency: int
 
+    # Recipe IDs to exclude (difficult + recently completed)
+    exclude_ids: List[uuid.UUID]
+
 
 # System prompt for the AI agent
 SYSTEM_PROMPT = """You are ChefPath, an expert adaptive meal planning assistant.
@@ -45,12 +56,14 @@ CONTEXT PROVIDED TO YOU:
 - user_id: The UUID of the current user (available in the conversation context)
 - user_goal: The user's cooking goal (e.g., "techniques", "health", etc.)
 - frequency: Number of meals requested per week
+- exclude_ids: List of recipe IDs to exclude (includes difficult recipes AND recently completed recipes for variety)
 
 WORKFLOW:
 Step 1: Call get_recipe_candidates tool
 - CRITICAL: Pass the user_id EXACTLY as provided in the context as a UUID object, not as a string placeholder
+- CRITICAL: Pass exclude_ids from the state context to avoid recipe repetition
 - Do NOT pass similarity_threshold parameter (let it use the default)
-- Only pass: intent_query (your search string), user_id (the actual UUID), exclude_ids (if any), and limit (set to frequency)
+- Only pass: intent_query (your search string), user_id (the actual UUID), exclude_ids (from state context), and limit (set to frequency)
 - Create a search query based on user preferences (cuisine, difficulty, goals)
 - IMPORTANT: This tool automatically populates candidate_recipes state with the found recipe IDs
 - The tool will also return a message indicating if there's a shortfall (e.g., "Found 2/3 recipes. Need 1 more")
@@ -134,6 +147,7 @@ tool_node = ToolNode(tools)
 
 
 # main LLM agent reasoning node
+@traceable(name="agent_reasoner_node")
 def call_agent_reasoner(state: PlanState) -> PlanState:
     """
     The main reasoning node. Prompts the LLM to decide the next action (Tool Call or Response).
@@ -153,7 +167,7 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
         # Invoke LLM with system prompt and user messages
         # Add context about user_id, goal, and frequency to help LLM use correct values
         context_message = SystemMessage(
-            content=f"{SYSTEM_PROMPT}\n\nCURRENT CONTEXT:\n- user_id: {state['user_id']}\n- user_goal: {state['user_goal']}\n- frequency: {state['frequency']} meals"
+            content=f"{SYSTEM_PROMPT}\n\nCURRENT CONTEXT:\n- user_id: {state['user_id']}\n- user_goal: {state['user_goal']}\n- frequency: {state['frequency']} meals\n- exclude_ids: {state.get('exclude_ids', [])} (excludes difficult + recently completed recipes)"
         )
         messages = [context_message] + state["messages"]
         response = llm_with_tools.invoke(messages)
@@ -182,6 +196,7 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
 
 
 # tool execution node
+@traceable(name="execute_tool_node")
 def execute_tool(state: PlanState) -> PlanState:
     """Execute the tool called by the LLM and return the result as a ToolMessage.
     Includes error handling for tool execution (e.g., database connection failure).
@@ -281,6 +296,7 @@ def execute_tool(state: PlanState) -> PlanState:
 
 
 # output node
+@traceable(name="finalize_plan_node")
 def finalize_plan_output(state: PlanState) -> PlanState:
     """
     Processes the final tool output (which should be the submitted plan)

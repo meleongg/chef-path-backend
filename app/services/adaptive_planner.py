@@ -2,12 +2,16 @@ import os
 import uuid
 import json
 from typing import List
+from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from langsmith import Client, traceable
+from langsmith.wrappers import wrap_openai
+import openai
 from app.database import engine
 from app.models import Recipe
 from app.schemas.adaptive_planner import (
@@ -20,10 +24,27 @@ from app.constants import EMBEDDING_MODEL, GENERATIVE_MODEL
 from app.services.ai_tasks import process_single_recipe_embedding_sync
 from app.database import SessionLocal
 
+load_dotenv()
+
 CONNECTION_STRING = os.environ.get("DATABASE_URL")
 if not CONNECTION_STRING:
     raise EnvironmentError("DATABASE_URL not set for Adaptive Planner Service.")
 
+# Initialize LangSmith client
+TRACING_ENABLED = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+langsmith_client = None
+
+if TRACING_ENABLED:
+    langsmith_client = Client(
+        api_key=os.getenv("LANGCHAIN_API_KEY"),
+        api_url=os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"),
+    )
+    print("[LangSmith] Tracing enabled")
+else:
+    print("[LangSmith] Tracing disabled")
+
+# Wrap OpenAI client for tracing
+openai_client = wrap_openai(openai.Client())
 GENERATIVE_LLM = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.7)
 
 
@@ -38,13 +59,14 @@ class AdaptivePlannerService:
             model=EMBEDDING_MODEL
         )
 
+    @traceable(name="hybrid_recipe_search")
     def get_recipe_candidates_hybrid(
         self,
         user_id: uuid.UUID,
         intent_query: str,
         exclude_ids: List[uuid.UUID],
         limit: int = 10,
-        similarity_threshold: float = 0.5,
+        similarity_threshold: float = 0.3,
     ) -> List[tuple]:
         """
         Executes a HYBRID (Vector Search + SQL Filter) query.
@@ -55,6 +77,10 @@ class AdaptivePlannerService:
         query_vector = self.embeddings_client.embed_query(intent_query)
         exclusion_str_list = [str(uid) for uid in exclude_ids]
 
+        print(
+            f"[get_recipe_candidates_hybrid] Excluding {len(exclusion_str_list)} recipes: {exclusion_str_list[:5]}..."
+        )
+
         # Convert list to string format for pgvector - embed directly in SQL
         vector_str = f"'[{','.join(map(str, query_vector))}]'::vector"
 
@@ -63,6 +89,9 @@ class AdaptivePlannerService:
             # Create a comma-separated list of UUIDs for NOT IN clause
             exclusion_placeholders = ", ".join(
                 [f"'{uid}'" for uid in exclusion_str_list]
+            )
+            print(
+                f"[get_recipe_candidates_hybrid] SQL exclusion: NOT IN ({exclusion_placeholders[:200]}...)"
             )
             raw_sql_query = text(
                 f"""
@@ -127,6 +156,7 @@ class AdaptivePlannerService:
 
 
 @tool(args_schema=RecipeSelectionInput)
+@traceable(name="finalize_recipe_selection_tool")
 def finalize_recipe_selection(recipe_ids: List[str]) -> str:
     """
     Call this tool to finalize your recipe selection for the weekly plan.
@@ -139,11 +169,12 @@ def finalize_recipe_selection(recipe_ids: List[str]) -> str:
 
 
 @tool(args_schema=HybridSearchInput)
+@traceable(name="get_recipe_candidates_tool")
 def get_recipe_candidates(
     intent_query: str,
     user_id: uuid.UUID,
     exclude_ids: List[uuid.UUID] = None,
-    similarity_threshold: float = 0.5,
+    similarity_threshold: float = 0.3,
     limit: int = 10,
 ) -> str:
     """
@@ -202,6 +233,7 @@ def get_recipe_candidates(
 
 
 @tool(args_schema=FinalPlanOutput)
+@traceable(name="submit_weekly_plan_tool")
 def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
     """
     Called by the Agent as the final step to submit the definitive list of 7
@@ -213,6 +245,7 @@ def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
 
 
 @tool
+@traceable(name="generate_and_save_recipe_tool")
 def generate_and_save_new_recipe(
     recipe_description: str, user_id: uuid.UUID = None
 ) -> str:
@@ -344,9 +377,6 @@ def generate_and_save_new_recipe(
 
     except Exception as e:
         print(f"[TOOL: generate_and_save_new_recipe] ❌ Error: {type(e).__name__}: {e}")
-        import traceback
-
-        traceback.print_exc()
         return f"Failed to generate recipe: {type(e).__name__}: {str(e)}"
 
     except Exception as e:
