@@ -5,3 +5,4 @@ venv/
 database.db
 *.db
 .DS_Store
+langsmith_examples.jsonl
