@@ -23,6 +23,7 @@ from app.schemas.adaptive_planner import (
 from app.constants import EMBEDDING_MODEL, GENERATIVE_MODEL
 from app.services.ai_tasks import process_single_recipe_embedding_sync
 from app.database import SessionLocal
+from app.utils.uuid_helpers import str_to_uuid, strs_to_uuids
 
 load_dotenv()
 
@@ -172,8 +173,8 @@ def finalize_recipe_selection(recipe_ids: List[str]) -> str:
 @traceable(name="get_recipe_candidates_tool")
 def get_recipe_candidates(
     intent_query: str,
-    user_id: uuid.UUID,
-    exclude_ids: List[uuid.UUID] = None,
+    user_id: str,
+    exclude_ids: List[str] = None,
     similarity_threshold: float = 0.3,
     limit: int = 10,
 ) -> str:
@@ -192,13 +193,17 @@ def get_recipe_candidates(
     if exclude_ids is None:
         exclude_ids = []
 
+    # Convert string IDs to UUIDs for database operations
+    user_uuid = str_to_uuid(user_id)
+    exclude_uuids = strs_to_uuids(exclude_ids)
+
     db = SessionLocal()
     try:
         service = AdaptivePlannerService(db=db)
         results: List[tuple] = service.get_recipe_candidates_hybrid(
-            user_id=user_id,
+            user_id=user_uuid,
             intent_query=intent_query,
-            exclude_ids=exclude_ids,
+            exclude_ids=exclude_uuids,
             limit=limit,
             similarity_threshold=similarity_threshold,
         )
@@ -234,10 +239,10 @@ def get_recipe_candidates(
 
 @tool(args_schema=FinalPlanOutput)
 @traceable(name="submit_weekly_plan_tool")
-def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
+def submit_weekly_plan_selection(final_recipe_ids: List[str]) -> str:
     """
-    Called by the Agent as the final step to submit the definitive list of 7
-    Recipe UUIDs that the user will follow for their weekly plan.
+    Called by the Agent as the final step to submit the list of recipes
+    Recipe UUID strings that the user will follow for their weekly plan.
     """
     # This tool is purely a structural mechanism. It just returns the list it was given.
     # The LangGraph state machine handles committing this list to the WeeklyPlanService later.
@@ -247,7 +252,7 @@ def submit_weekly_plan_selection(final_recipe_ids: List[uuid.UUID]) -> str:
 @tool
 @traceable(name="generate_and_save_recipe_tool")
 def generate_and_save_new_recipe(
-    recipe_description: str, user_id: uuid.UUID = None
+    recipe_description: str, user_id: str = None
 ) -> str:
     """
     Generates a new, custom recipe based on the recipe description.
@@ -255,7 +260,7 @@ def generate_and_save_new_recipe(
 
     Args:
         recipe_description: Detailed description of the desired recipe (include cuisine, difficulty, goal)
-        user_id: Optional UUID of the user requesting the recipe
+        user_id: Optional UUID string of the user requesting the recipe
 
     Returns:
         A success message with the newly created recipe ID in format: "Successfully generated recipe: <uuid>"
@@ -370,7 +375,9 @@ def generate_and_save_new_recipe(
             print("[TOOL] Generating embeddings for vector search...")
             process_single_recipe_embedding_sync(new_recipe.id, db)
 
-            print(f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully")
+            print(
+                f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully"
+            )
 
             # Return in format that execute_tool can parse
             return f"Successfully generated recipe: {new_recipe.id}\nName: {new_recipe.name}\nCuisine: {new_recipe.cuisine}\nDifficulty: {new_recipe.difficulty}"

@@ -30,12 +30,11 @@ class PlanState(TypedDict):
     # Conversation History (MUST use operator.add to append messages)
     messages: Annotated[List[AnyMessage], operator.add]
 
-    # Structured context from the DB
-    user_id: uuid.UUID
+    user_id: str
     user_goal: str
 
     # Result of the Hybrid Retrieval Tool
-    candidate_recipes: List[str]  # List of recipe IDs/summaries found by Vector Search
+    candidate_recipes: List[str]  # List of recipe ID strings found by Vector Search
 
     # Agent decision marker
     next_action: Literal["tool", "generate", "end"]
@@ -43,8 +42,8 @@ class PlanState(TypedDict):
     # User's preferred number of meals per week
     frequency: int
 
-    # Recipe IDs to exclude (difficult + recently completed)
-    exclude_ids: List[uuid.UUID]
+    # Recipe ID strings to exclude (difficult + recently completed)
+    exclude_ids: List[str]
 
 
 # System prompt for the AI agent

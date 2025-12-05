@@ -9,16 +9,16 @@ class HybridSearchInput(BaseModel):
     intent_query: str = Field(
         description="The detailed natural language query describing the desired recipe type, cuisine, or flavor profile."
     )
-    user_id: uuid.UUID = Field(
-        description="The UUID of the authenticated user requesting the recipe candidates."
+    user_id: str = Field(
+        description="The UUID string of the authenticated user requesting the recipe candidates."
     )
-    exclude_ids: Optional[List[uuid.UUID]] = Field(
+    exclude_ids: Optional[List[str]] = Field(
         default_factory=list,
-        description="A list of Recipe UUIDs that the system should exclude (e.g., recipes rated 'too hard').",
+        description="A list of Recipe UUID strings that the system should exclude (e.g., recipes rated 'too hard').",
     )
     similarity_threshold: Optional[float] = Field(
-        default=0.7,
-        description="The minimum semantic similarity score (0.0 to 1.0) required to consider a recipe relevant. Default is 0.7.",
+        default=0.3,
+        description="The minimum semantic similarity score (0.0 to 1.0) required to consider a recipe relevant. Default is 0.3.",
     )
     limit: Optional[int] = Field(
         default=10, description="The maximum number of recipe candidates to return."
@@ -28,9 +28,8 @@ class HybridSearchInput(BaseModel):
 class FinalPlanOutput(BaseModel):
     """The final list of Recipe IDs selected for the weekly plan."""
 
-    # We want a clean list of 7 UUIDs
-    final_recipe_ids: List[uuid.UUID] = Field(
-        description="The definitive list of 7 (or user.frequency) Recipe UUIDs selected for the user's weekly plan."
+    final_recipe_ids: List[str] = Field(
+        description="The definitive list of 7 (or user.frequency) Recipe UUID strings selected for the user's weekly plan."
     )
 
 

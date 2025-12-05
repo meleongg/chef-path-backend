@@ -26,19 +26,40 @@ class WeeklyPlanService:
         plan.recipes = ordered_recipes
         return plan
 
-    def get_user_exclusion_ids(self, user: User, db: Session) -> List[uuid.UUID]:
-        """Fetches all recipe IDs the user has rated poorly (used by the Agent to filter)."""
-        # We define this logic based on your new feedback columns (difficulty_rating, etc.)
+    def get_user_exclusion_ids(
+        self, user: User, db: Session, current_week: int = None
+    ) -> List[uuid.UUID]:
+        """
+        Fetches all recipe IDs to exclude from the next plan.
+        Includes:
+        1. Recipes rated as too difficult (difficulty_rating >= 4)
+        2. Recently completed recipes from the last 2 weeks (for variety)
+        """
+        exclusion_ids = []
 
-        # TODO: update exclusion criteria
         hard_recipes = db.scalars(
             select(UserRecipeProgress.recipe_id).filter(
                 (UserRecipeProgress.user_id == user.id)
                 & (UserRecipeProgress.difficulty_rating >= 4)
             )
         ).all()
+        exclusion_ids.extend(hard_recipes)
 
-        return hard_recipes
+        if current_week is not None and current_week > 1:
+            recent_weeks_to_exclude = 2
+            min_week = max(1, current_week - recent_weeks_to_exclude + 1)
+
+            recent_recipes = db.scalars(
+                select(UserRecipeProgress.recipe_id).filter(
+                    (UserRecipeProgress.user_id == user.id)
+                    & (UserRecipeProgress.week_number >= min_week)
+                    & (UserRecipeProgress.week_number < current_week)
+                )
+            ).all()
+            exclusion_ids.extend(recent_recipes)
+
+        # Remove duplicates and return
+        return list(set(exclusion_ids))
 
     def _create_progress_entries(
         self,

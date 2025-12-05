@@ -16,6 +16,7 @@ from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
 from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
 from app.services.intent_classifier import classify_message_intent
+from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
 
 # Load environment variables
 load_dotenv()
@@ -229,18 +230,22 @@ async def generate_user_plan_endpoint(
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(user, db)
-
     # Always generate/regenerate week 1 for initial plan generation
     week_number = 1
 
+    exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
+        user, db, current_week=week_number
+    )
+
+    exclude_ids_str = uuids_to_strs(exclusion_ids)
+
     initial_state: PlanState = {
         "messages": [HumanMessage(content=input.initial_intent)],
-        "user_id": user.id,
+        "user_id": str(user.id),
         "user_goal": user.user_goal,
         "candidate_recipes": [],
         "frequency": user.frequency,
-        "exclude_ids": exclusion_ids,
+        "exclude_ids": exclude_ids_str,
     }
 
     thread_id_str = str(user.id)
@@ -263,14 +268,17 @@ async def generate_user_plan_endpoint(
                 },
             )
         print("Final state:", final_state)
-        final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
-        print("Final recipe IDs:", final_recipe_ids)
+        final_recipe_ids_str: List[str] = final_state.get("candidate_recipes", [])
+        print("Final recipe IDs (strings):", final_recipe_ids_str)
 
-        if not final_recipe_ids:
+        if not final_recipe_ids_str:
             print("No recipe IDs returned by agent.")
             raise ValueError(
                 "The Adaptive Planner Agent failed to select final recipe IDs."
             )
+
+        # Convert string IDs back to UUIDs for database storage
+        final_recipe_ids: List[uuid.UUID] = strs_to_uuids(final_recipe_ids_str)
 
         new_plan = await plan_service.generate_weekly_plan(
             user=user,
@@ -456,25 +464,12 @@ async def generate_next_week_plan(
             f"[GenerateNextWeek] ⚠️ Week {next_week_number} already exists, will regenerate"
         )
 
-    # Get exclusion IDs (recipes user rated as too difficult)
-    exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(user, db)
-
-    # Exclude recipes from the last 2 weeks to prevent repetition
-    recent_weeks_to_exclude = 2
-    recent_progress = (
-        db.query(UserRecipeProgress)
-        .filter(
-            UserRecipeProgress.user_id == user_id,
-            UserRecipeProgress.week_number
-            >= (current_week - recent_weeks_to_exclude + 1),
-            UserRecipeProgress.status == "completed",
-        )
-        .all()
+    # Get exclusion IDs (difficult recipes + recipes from last 2 weeks)
+    exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
+        user, db, current_week=next_week_number
     )
 
-    recent_recipe_ids = [p.recipe_id for p in recent_progress]
-    exclusion_ids.extend(recent_recipe_ids)
-    exclusion_ids = list(set(exclusion_ids))  # Remove duplicates
+    exclude_ids_str = uuids_to_strs(exclusion_ids)
 
     print(
         f"[GenerateNextWeek] Excluding {len(exclusion_ids)} recipes (difficult + recent)"
@@ -485,17 +480,17 @@ async def generate_next_week_plan(
     adapted_skill = plan_service.adapt_skill_level(user, next_week_number, db)
 
     initial_intent = (
-        f"Create a weekly meal plan for week {next_week_number} for a user who prefers {user.cuisine} cuisine, "
-        f"wants {user.frequency} meals per week, is a {adapted_skill} cook, and whose goal is {user.user_goal}."
+        f"Create a Week {next_week_number} weekly meal plan for a user who prefers {user.cuisine} cuisine, "
+        f"who wants {user.frequency} meals per week, has this cooking skill level: {adapted_skill}, and whose goal of using this app is {user.user_goal}."
     )
 
     initial_state: PlanState = {
         "messages": [HumanMessage(content=initial_intent)],
-        "user_id": user.id,
+        "user_id": str(user.id),
         "user_goal": user.user_goal,
         "candidate_recipes": [],
         "frequency": user.frequency,
-        "exclude_ids": exclusion_ids,
+        "exclude_ids": exclude_ids_str,
     }
 
     thread_id_str = str(user.id)
@@ -506,7 +501,7 @@ async def generate_next_week_plan(
     try:
         print(f"[GenerateNextWeek] Initial state: {initial_state}")
         print(
-            f"[GenerateNextWeek] Excluding {len(exclusion_ids)} recipe IDs: {exclusion_ids}"
+            f"[GenerateNextWeek] Excluding {len(exclusion_ids)} recipe IDs: {exclude_ids_str}"
         )
 
         # Get checkpointer and compile agent
@@ -523,11 +518,13 @@ async def generate_next_week_plan(
                 },
             )
 
-        final_recipe_ids: List[uuid.UUID] = final_state.get("candidate_recipes", [])
-        print(f"[GenerateNextWeek] Agent returned {len(final_recipe_ids)} recipes")
+        final_recipe_ids_str: List[str] = final_state.get("candidate_recipes", [])
+        print(f"[GenerateNextWeek] Agent returned {len(final_recipe_ids_str)} recipes")
 
-        if not final_recipe_ids:
+        if not final_recipe_ids_str:
             raise ValueError("Agent failed to select recipes for next week.")
+
+        final_recipe_ids: List[uuid.UUID] = strs_to_uuids(final_recipe_ids_str)
 
         # Generate the weekly plan (this will create progress entries too)
         new_plan = await plan_service.generate_weekly_plan(
@@ -583,13 +580,11 @@ async def confirm_plan_modification(
 
     thread_id_str = str(user_id)
 
-    # Get current recipe IDs from the plan
+    # Get current recipe IDs from the plan (as strings for agent)
     try:
-        current_recipe_ids = [
-            uuid.UUID(rid) for rid in json.loads(last_plan.recipe_ids)
-        ]
+        current_recipe_ids_str = json.loads(last_plan.recipe_ids)
         print(
-            f"[ConfirmModification] Current plan has {len(current_recipe_ids)} recipes"
+            f"[ConfirmModification] Current plan has {len(current_recipe_ids_str)} recipes"
         )
     except Exception as e:
         print(f"[ConfirmModification] Error parsing recipe IDs: {e}")
@@ -620,8 +615,12 @@ async def confirm_plan_modification(
             )
             previous_messages = []
 
-        # Get exclusion IDs
-        exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(user, db)
+        # Get exclusion IDs (use last_plan.week_number for current week context)
+        exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
+            user, db, current_week=last_plan.week_number
+        )
+
+        exclude_ids_str = uuids_to_strs(exclusion_ids)
 
         # Create new state that includes:
         # 1. Previous conversation context (if any)
@@ -629,13 +628,11 @@ async def confirm_plan_modification(
         # 3. New modification request
         new_state: PlanState = {
             "messages": previous_messages + [HumanMessage(content=input.user_message)],
-            "user_id": user_id,
+            "user_id": str(user_id),
             "user_goal": user.user_goal,
-            "candidate_recipes": [
-                str(rid) for rid in current_recipe_ids
-            ],  # Start with current recipes
+            "candidate_recipes": current_recipe_ids_str,
             "frequency": user.frequency,
-            "exclude_ids": exclusion_ids,
+            "exclude_ids": exclude_ids_str,
         }
 
         print(f"[ConfirmModification] Invoking agent with modification request...")
@@ -650,20 +647,20 @@ async def confirm_plan_modification(
                 },
             )
 
-        updated_recipe_ids: List[uuid.UUID] = updated_state.get("candidate_recipes", [])
-        print(f"[ConfirmModification] Agent returned {len(updated_recipe_ids)} recipes")
+        updated_recipe_ids_str: List[str] = updated_state.get("candidate_recipes", [])
+        print(f"[ConfirmModification] Agent returned {len(updated_recipe_ids_str)} recipes")
 
-        if not updated_recipe_ids:
+        if not updated_recipe_ids_str:
             raise ValueError("No recipes selected after plan modification.")
 
         # Check if recipes actually changed
-        if set(updated_recipe_ids) == set(current_recipe_ids):
+        if set(updated_recipe_ids_str) == set(current_recipe_ids_str):
             print(f"[ConfirmModification] ⚠️ No changes detected in recipe selection")
         else:
             print(f"[ConfirmModification] ✅ Recipes changed, updating plan...")
 
         # Update the plan with new recipe IDs
-        recipe_ids_str = json.dumps([str(uid) for uid in updated_recipe_ids])
+        recipe_ids_str = json.dumps(updated_recipe_ids_str)
         last_plan.recipe_ids = recipe_ids_str
         db.commit()
         db.refresh(last_plan)
