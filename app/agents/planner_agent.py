@@ -139,6 +139,7 @@ The system will present the final plan after finalize_recipe_selection succeeds.
 # init AI agent with tools bound
 tools = [get_recipe_candidates, generate_and_save_new_recipe, finalize_recipe_selection]
 llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0)
+# LLM receives tool schemas
 llm_with_tools = llm.bind_tools(tools)
 
 # Create tool node for executing tools
@@ -182,9 +183,11 @@ def call_agent_reasoner(state: PlanState) -> PlanState:
         )
 
         if getattr(response, "tool_calls", False):
+            # LLM is requesting a tool call, so route to tool node
             print(f"[call_agent_reasoner] Tool calls: {response.tool_calls}")
             return {"messages": [response], "next_action": "tool"}
         else:
+            # LLM gave a text response
             print(f"[call_agent_reasoner] No tool calls, ending cycle")
             return {"messages": [response], "next_action": "end"}
 

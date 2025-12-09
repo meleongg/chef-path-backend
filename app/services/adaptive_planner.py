@@ -251,9 +251,7 @@ def submit_weekly_plan_selection(final_recipe_ids: List[str]) -> str:
 
 @tool
 @traceable(name="generate_and_save_recipe_tool")
-def generate_and_save_new_recipe(
-    recipe_description: str, user_id: str = None
-) -> str:
+def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -> str:
     """
     Generates a new, custom recipe based on the recipe description.
     Saves the new recipe to the database with embeddings for vector search.

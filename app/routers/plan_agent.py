@@ -17,6 +17,7 @@ from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
 from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
 from app.services.intent_classifier import classify_message_intent
 from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
+from app.utils.prompt_helpers import get_goal_description, get_skill_description
 
 # Load environment variables
 load_dotenv()
@@ -481,7 +482,8 @@ async def generate_next_week_plan(
 
     initial_intent = (
         f"Create a Week {next_week_number} weekly meal plan for a user who prefers {user.cuisine} cuisine, "
-        f"who wants {user.frequency} meals per week, has this cooking skill level: {adapted_skill}, and whose goal of using this app is {user.user_goal}."
+        f"who wants {user.frequency} meals per week, has this cooking skill level: {get_skill_description(adapted_skill)}, "
+        f"and whose goal is: {get_goal_description(user.user_goal)}."
     )
 
     initial_state: PlanState = {
@@ -648,7 +650,9 @@ async def confirm_plan_modification(
             )
 
         updated_recipe_ids_str: List[str] = updated_state.get("candidate_recipes", [])
-        print(f"[ConfirmModification] Agent returned {len(updated_recipe_ids_str)} recipes")
+        print(
+            f"[ConfirmModification] Agent returned {len(updated_recipe_ids_str)} recipes"
+        )
 
         if not updated_recipe_ids_str:
             raise ValueError("No recipes selected after plan modification.")
