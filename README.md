@@ -63,3 +63,26 @@ python manage_db.py seed             # Add sample data
 ```
 
 See `scripts/README.md` for detailed documentation.
+
+## 🧪 Testing & Evaluation
+
+LangSmith-powered evaluation system for agent behavior and intent classification:
+
+```bash
+# Setup datasets (one-time)
+python scripts/evaluate_agent.py setup
+
+# Run evaluations
+python scripts/evaluate_agent.py intent    # Intent classification only
+python scripts/evaluate_agent.py agent     # Agent behavior only
+python scripts/evaluate_agent.py all       # All evaluations
+
+# View results at: https://smith.langchain.com/experiments
+```
+
+**What's Tested:**
+
+- **Intent Classification**: Accuracy of message routing (plan_modification, general_knowledge, analytics)
+- **Agent Behavior**: Recipe count, duplicates, exclusions, tool sequences, finalization
+
+**Requirements**: Set `LANGCHAIN_API_KEY` and `LANGCHAIN_TRACING=true` in `.env`
