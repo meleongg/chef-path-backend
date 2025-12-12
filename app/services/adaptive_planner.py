@@ -24,6 +24,7 @@ from app.constants import EMBEDDING_MODEL, GENERATIVE_MODEL
 from app.services.ai_tasks import process_single_recipe_embedding_sync
 from app.database import SessionLocal
 from app.utils.uuid_helpers import str_to_uuid, strs_to_uuids
+from app.utils.recipe_formatters import instructions_json_to_text
 
 load_dotenv()
 
@@ -349,14 +350,23 @@ def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -
                     for item in generated_recipe_data.ingredients
                 ]
             )
-            content_text = f"{generated_recipe_data.name} {generated_recipe_data.cuisine} {ingredients_text} {generated_recipe_data.instructions}"
+
+            # Convert structured instructions to JSON and text
+            instructions_list = [
+                {"step": item.step, "text": item.text}
+                for item in generated_recipe_data.instructions
+            ]
+            instructions_json = json.dumps(instructions_list)
+            instructions_text = instructions_json_to_text(instructions_list)
+
+            content_text = f"{generated_recipe_data.name} {generated_recipe_data.cuisine} {ingredients_text} {instructions_text}"
 
             # Create the final recipe object
             new_recipe = Recipe(
                 name=generated_recipe_data.name,
                 cuisine=generated_recipe_data.cuisine,
                 ingredients=ingredients_json,  # Store as JSON string
-                instructions=generated_recipe_data.instructions,
+                instructions=instructions_json,  # Store structured instructions as JSON
                 difficulty=generated_recipe_data.difficulty,
                 is_ai_generated=True,  # Flag this as an LLM creation
                 external_id=f"ai-generated-{uuid.uuid4()}",  # Unique external_id per recipe

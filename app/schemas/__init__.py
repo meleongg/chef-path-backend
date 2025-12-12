@@ -18,6 +18,25 @@ class UserCreate(BaseModel):
     user_goal: str = Field(
         ..., description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc."
     )
+    dietary_restrictions: Optional[str] = Field(
+        None,
+        description="JSON array of dietary restrictions (e.g., ['vegetarian', 'gluten-free'])",
+    )
+    allergens: Optional[str] = Field(
+        None,
+        description="JSON array of allergens to avoid (e.g., ['nuts', 'shellfish'])",
+    )
+    preferred_portion_size: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Preferred serving size (e.g., '2-3', '4', 'family')",
+    )
+    max_prep_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Maximum acceptable prep time in minutes"
+    )
+    max_cook_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Maximum acceptable cook time in minutes"
+    )
 
 
 class UserUpdate(BaseModel):
@@ -28,6 +47,21 @@ class UserUpdate(BaseModel):
     )
     user_goal: Optional[str] = Field(
         None, description="e.g., 'Learn New Techniques', 'Master a Cuisine', etc."
+    )
+    dietary_restrictions: Optional[str] = Field(
+        None, description="JSON array of dietary restrictions"
+    )
+    allergens: Optional[str] = Field(
+        None, description="JSON array of allergens to avoid"
+    )
+    preferred_portion_size: Optional[str] = Field(
+        None, max_length=50, description="Preferred serving size"
+    )
+    max_prep_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Maximum acceptable prep time"
+    )
+    max_cook_time_minutes: Optional[int] = Field(
+        None, ge=0, description="Maximum acceptable cook time"
     )
 
 
@@ -40,6 +74,11 @@ class UserResponse(BaseModel):
     frequency: int
     skill_level: str
     user_goal: str
+    dietary_restrictions: Optional[str] = None
+    allergens: Optional[str] = None
+    preferred_portion_size: Optional[str] = None
+    max_prep_time_minutes: Optional[int] = None
+    max_cook_time_minutes: Optional[int] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -80,6 +119,12 @@ class RecipeResponse(BaseModel):
     difficulty: str
     tags: Optional[str]
     image_url: Optional[str]
+    dietary_tags: Optional[str] = None
+    allergens: Optional[str] = None
+    portion_size: Optional[str] = None
+    prep_time_minutes: Optional[int] = None
+    cook_time_minutes: Optional[int] = None
+    skill_level_validated: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
