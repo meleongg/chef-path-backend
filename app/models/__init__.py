@@ -5,8 +5,7 @@ from sqlalchemy import (
     DateTime,
     Text,
     ForeignKey,
-    Boolean,
-    Index,
+    Boolean
 )
 from sqlalchemy.dialects.postgresql import UUID, TEXT
 from pgvector.sqlalchemy import Vector
@@ -33,6 +32,21 @@ class User(Base):
     user_goal = Column(
         String, nullable=False
     )  # e.g., "Learn New Techniques", "Master a Cuisine", etc.
+    dietary_restrictions = Column(
+        Text, nullable=True
+    )  # JSON array of dietary restrictions (e.g., ["vegetarian", "gluten-free", "nut-free"])
+    allergens = Column(
+        Text, nullable=True
+    )  # JSON array of allergens to avoid (e.g., ["nuts", "shellfish", "dairy"])
+    preferred_portion_size = Column(
+        String(50), nullable=True
+    )  # Preferred serving size (e.g., "1-2", "3-4", "5-6", "family")
+    max_prep_time_minutes = Column(
+        Integer, nullable=True
+    )  # Maximum acceptable prep time in minutes
+    max_cook_time_minutes = Column(
+        Integer, nullable=True
+    )  # Maximum acceptable cook time in minutes
     hashed_password = Column(
         String, nullable=False
     )  # Store hashed password for authentication
@@ -64,6 +78,14 @@ class Recipe(Base):
     content_text = Column(TEXT, nullable=True)  # Full text for embedding
     embedding = Column(Vector(1536), nullable=True)  # Vector embedding
     is_ai_generated = Column(Boolean, default=False)  # Flag for AI origin
+
+    # AI-augmented metadata fields
+    dietary_tags = Column(Text, nullable=True)  # JSON array of dietary tags (e.g., ["vegetarian", "gluten-free"])
+    allergens = Column(Text, nullable=True)  # JSON array of common allergens (e.g., ["nuts", "dairy"])
+    portion_size = Column(String(50), nullable=True)  # Serving size (e.g., "4 servings", "6-8 people")
+    prep_time_minutes = Column(Integer, nullable=True)  # Preparation time in minutes
+    cook_time_minutes = Column(Integer, nullable=True)  # Cooking time in minutes
+    skill_level_validated = Column(String(20), nullable=True)  # AI-validated skill level (beginner, medium, advanced)
 
 
 class WeeklyPlan(Base):
