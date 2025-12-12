@@ -1,12 +1,4 @@
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    DateTime,
-    Text,
-    ForeignKey,
-    Boolean
-)
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID, TEXT
 from pgvector.sqlalchemy import Vector
 import uuid
@@ -80,12 +72,20 @@ class Recipe(Base):
     is_ai_generated = Column(Boolean, default=False)  # Flag for AI origin
 
     # AI-augmented metadata fields
-    dietary_tags = Column(Text, nullable=True)  # JSON array of dietary tags (e.g., ["vegetarian", "gluten-free"])
-    allergens = Column(Text, nullable=True)  # JSON array of common allergens (e.g., ["nuts", "dairy"])
-    portion_size = Column(String(50), nullable=True)  # Serving size (e.g., "4 servings", "6-8 people")
+    dietary_tags = Column(
+        Text, nullable=True
+    )  # JSON array of dietary tags (e.g., ["vegetarian", "gluten-free"])
+    allergens = Column(
+        Text, nullable=True
+    )  # JSON array of common allergens (e.g., ["nuts", "dairy"])
+    portion_size = Column(
+        String(50), nullable=True
+    )  # Serving size (e.g., "4 servings", "6-8 people")
     prep_time_minutes = Column(Integer, nullable=True)  # Preparation time in minutes
     cook_time_minutes = Column(Integer, nullable=True)  # Cooking time in minutes
-    skill_level_validated = Column(String(20), nullable=True)  # AI-validated skill level (beginner, medium, advanced)
+    skill_level_validated = Column(
+        String(20), nullable=True
+    )  # AI-validated skill level (beginner, medium, advanced)
 
 
 class WeeklyPlan(Base):

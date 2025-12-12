@@ -373,9 +373,7 @@ def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -
             print("[TOOL] Generating embeddings for vector search...")
             process_single_recipe_embedding_sync(new_recipe.id, db)
 
-            print(
-                f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully"
-            )
+            print(f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully")
 
             # Return in format that execute_tool can parse
             return f"Successfully generated recipe: {new_recipe.id}\nName: {new_recipe.name}\nCuisine: {new_recipe.cuisine}\nDifficulty: {new_recipe.difficulty}"
