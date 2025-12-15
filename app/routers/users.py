@@ -4,8 +4,16 @@ from typing import List
 from uuid import UUID
 from app.database import get_db
 from app.utils.auth import get_current_user
+from app.utils.password import hash_password, verify_password
 from app.models import User
-from app.schemas import UserCreate, UserUpdate, UserResponse
+from app.schemas import (
+    UserCreate,
+    UserUpdate,
+    UserResponse,
+    UpdateAccountDetails,
+    ChangePasswordRequest,
+    MessageResponse,
+)
 
 router = APIRouter()
 
@@ -74,3 +82,104 @@ async def list_users(
     """List all users (for testing purposes)"""
     users = db.query(User).all()
     return users
+
+
+@router.put("/users/{user_id}/account", response_model=UserResponse)
+async def update_account_details(
+    user_id: UUID,
+    account_data: UpdateAccountDetails,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Update account details (email, first name, last name)"""
+    # Ensure user can only update their own account
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own account",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    # Check if email is being changed and if it's already taken
+    if account_data.email and account_data.email != user.email:
+        existing_user = db.query(User).filter(User.email == account_data.email).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use",
+            )
+
+    # Update fields
+    for field, value in account_data.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.put("/users/{user_id}/password", response_model=MessageResponse)
+async def change_password(
+    user_id: UUID,
+    password_data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Change user password"""
+    # Ensure user can only change their own password
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only change your own password",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    # Verify current password
+    if not verify_password(password_data.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    # Hash and update new password
+    user.hashed_password = hash_password(password_data.new_password)
+    db.commit()
+
+    return {"message": "Password changed successfully"}
+
+
+@router.delete("/users/{user_id}", response_model=MessageResponse)
+async def delete_account(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Delete user account (soft delete or hard delete based on requirements)"""
+    # Ensure user can only delete their own account
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own account",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    # Hard delete (you can implement soft delete if needed)
+    db.delete(user)
+    db.commit()
+
+    return {"message": "Account deleted successfully"}

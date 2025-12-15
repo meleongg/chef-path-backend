@@ -64,6 +64,27 @@ class UserUpdate(BaseModel):
         None, ge=0, description="Maximum acceptable cook time"
     )
 
+class UpdateAccountDetails(BaseModel):
+    """Schema for updating account details (email, name)"""
+
+    email: Optional[str] = Field(None, description="User's email address")
+    first_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Schema for changing user password"""
+
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(
+        ..., min_length=6, description="New password (min 6 characters)"
+    )
+
+
+class MessageResponse(BaseModel):
+    """Generic message response"""
+
+    message: str
 
 class UserResponse(BaseModel):
     id: UUID
