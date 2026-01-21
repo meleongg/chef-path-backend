@@ -7,7 +7,7 @@ from typing import List, Dict, Union
 
 
 def instructions_json_to_text(
-    instructions_json: Union[List[Dict[str, any]], str]
+    instructions_json: Union[List[Dict[str, any]], str],
 ) -> str:
     """
     Convert structured instruction JSON back to plain text format.

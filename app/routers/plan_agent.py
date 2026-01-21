@@ -6,6 +6,12 @@ from dotenv import load_dotenv
 from app.constants import GENERATIVE_MODEL
 from typing import Annotated, List, Dict, Any
 from fastapi import APIRouter, Depends, Body, HTTPException, status, Request
+from app.agents.runtime_context import (
+    set_runtime_context,
+    clear_runtime_context,
+    PlannerContext,
+    PlannerRuntimeState,
+)
 from sqlalchemy.orm import Session
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
@@ -225,6 +231,8 @@ async def generate_user_plan_endpoint(
     """
     Triggers the LangGraph Adaptive Agent to generate a new weekly plan
     based on user history and goals.
+
+    Uses runtime context for efficient token management.
     """
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -240,6 +248,25 @@ async def generate_user_plan_endpoint(
 
     exclude_ids_str = uuids_to_strs(exclusion_ids)
 
+    # Initialize runtime context (NOT passed through LLM!)
+    runtime_context = PlannerContext(
+        user_id=user.id,
+        user_goal=user.user_goal,
+        frequency=user.frequency,
+        exclude_ids=exclusion_ids,
+        skill_level=getattr(user, "skill_level", None),
+    )
+
+    runtime_state = PlannerRuntimeState(
+        candidate_recipes=[],
+        search_attempts=0,
+        generation_attempts=0,
+    )
+
+    # Set runtime context for tools to access
+    set_runtime_context(runtime_context, runtime_state)
+
+    # Simplified initial state (context is in runtime, not LLM messages)
     initial_state: PlanState = {
         "messages": [HumanMessage(content=input.initial_intent)],
         "user_id": str(user.id),
@@ -252,6 +279,12 @@ async def generate_user_plan_endpoint(
     thread_id_str = str(user.id)
 
     try:
+        print("=" * 80)
+        print("[PHASE 1: RUNTIME CONTEXT INITIALIZED]")
+        print(f"  user_id: {runtime_context.user_id}")
+        print(f"  frequency: {runtime_context.frequency}")
+        print(f"  exclude_ids: {len(runtime_context.exclude_ids)} recipes")
+        print("=" * 80)
         print("Initial state:", initial_state)
         print("Thread ID:", thread_id_str)
 
@@ -268,8 +301,20 @@ async def generate_user_plan_endpoint(
                     "recursion_limit": 25,
                 },
             )
+
         print("Final state:", final_state)
-        final_recipe_ids_str: List[str] = final_state.get("candidate_recipes", [])
+
+        # Sync final state from runtime (runtime state is source of truth)
+        final_recipe_ids_str: List[
+            str
+        ] = runtime_state.candidate_recipes or final_state.get("candidate_recipes", [])
+
+        print("=" * 80)
+        print("[PHASE 1: RUNTIME STATE SUMMARY]")
+        print(f"  Search attempts: {runtime_state.search_attempts}")
+        print(f"  Generation attempts: {runtime_state.generation_attempts}")
+        print(f"  Final recipes: {len(final_recipe_ids_str)}")
+        print("=" * 80)
         print("Final recipe IDs (strings):", final_recipe_ids_str)
 
         if not final_recipe_ids_str:
@@ -302,6 +347,10 @@ async def generate_user_plan_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent Planning Critical Error: {e}",
         )
+    finally:
+        # Always clean up runtime context
+        clear_runtime_context()
+        print("[PHASE 1: RUNTIME CONTEXT CLEARED]")
 
 
 @router.get("/can_generate_next_week/{user_id}", response_model=Dict[str, Any])
@@ -510,6 +559,22 @@ async def generate_next_week_plan(
         checkpointer = request.app.state.checkpoint_saver
         agent = get_agent_with_checkpointer(checkpointer)
 
+        # Initialize runtime context for the agent
+        print("[PHASE 1: RUNTIME CONTEXT INITIALIZED FOR NEXT WEEK GENERATION]")
+        runtime_context = PlannerContext(
+            user_id=str(user.id),
+            user_goal=user.user_goal,
+            frequency=user.frequency,
+            exclude_ids=exclude_ids_str,
+            skill_level=adapted_skill,
+        )
+        runtime_state = PlannerRuntimeState(
+            candidate_recipes=[],
+            search_attempts=0,
+            generation_attempts=0,
+        )
+        set_runtime_context(runtime_context, runtime_state)
+
         # Invoke agent to generate recipes
         with tracing_context(enabled=TRACING_ENABLED):
             final_state: PlanState = agent.invoke(
@@ -520,8 +585,17 @@ async def generate_next_week_plan(
                 },
             )
 
-        final_recipe_ids_str: List[str] = final_state.get("candidate_recipes", [])
+        # Get results from runtime state (tools updated it directly)
+        final_recipe_ids_str: List[str] = runtime_state.candidate_recipes
         print(f"[GenerateNextWeek] Agent returned {len(final_recipe_ids_str)} recipes")
+
+        # Log runtime state statistics
+        print(
+            f"[PHASE 1: NEXT WEEK GENERATION RUNTIME STATE SUMMARY]\n"
+            f"  candidate_recipes: {len(runtime_state.candidate_recipes)} recipes\n"
+            f"  search_attempts: {runtime_state.search_attempts}\n"
+            f"  generation_attempts: {runtime_state.generation_attempts}"
+        )
 
         if not final_recipe_ids_str:
             raise ValueError("Agent failed to select recipes for next week.")
@@ -550,6 +624,10 @@ async def generate_next_week_plan(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Next week generation failed: {str(e)}",
         )
+    finally:
+        # Clean up runtime context
+        clear_runtime_context()
+        print("[PHASE 1: RUNTIME CONTEXT CLEARED]")
 
 
 @router.post("/chat/confirm_modification/{user_id}", response_model=WeeklyPlanResponse)
@@ -624,6 +702,31 @@ async def confirm_plan_modification(
 
         exclude_ids_str = uuids_to_strs(exclusion_ids)
 
+        # PHASE 1: Initialize runtime context for modification
+        runtime_context = PlannerContext(
+            user_id=user.id,
+            user_goal=user.user_goal,
+            frequency=user.frequency,
+            exclude_ids=exclusion_ids,
+            skill_level=getattr(user, "skill_level", None),
+        )
+
+        runtime_state = PlannerRuntimeState(
+            candidate_recipes=current_recipe_ids_str,  # Start with current recipes
+            search_attempts=0,
+            generation_attempts=0,
+        )
+
+        # Set runtime context for tools to access
+        set_runtime_context(runtime_context, runtime_state)
+
+        print("=" * 80)
+        print("[PHASE 1: RUNTIME CONTEXT INITIALIZED FOR MODIFICATION]")
+        print(f"  user_id: {runtime_context.user_id}")
+        print(f"  frequency: {runtime_context.frequency}")
+        print(f"  current recipes: {len(runtime_state.candidate_recipes)}")
+        print("=" * 80)
+
         # Create new state that includes:
         # 1. Previous conversation context (if any)
         # 2. Current recipe list
@@ -645,11 +748,24 @@ async def confirm_plan_modification(
                 new_state,
                 config={
                     "configurable": {"thread_id": thread_id_str},
-                    "recursion_limit": 20,
+                    "recursion_limit": 25,
                 },
             )
 
-        updated_recipe_ids_str: List[str] = updated_state.get("candidate_recipes", [])
+        # Get results from runtime state (more reliable)
+        updated_recipe_ids_str: List[
+            str
+        ] = runtime_state.candidate_recipes or updated_state.get(
+            "candidate_recipes", []
+        )
+
+        print("=" * 80)
+        print("[PHASE 1: MODIFICATION RUNTIME STATE SUMMARY]")
+        print(f"  Search attempts: {runtime_state.search_attempts}")
+        print(f"  Generation attempts: {runtime_state.generation_attempts}")
+        print(f"  Updated recipes: {len(updated_recipe_ids_str)}")
+        print("=" * 80)
+
         print(
             f"[ConfirmModification] Agent returned {len(updated_recipe_ids_str)} recipes"
         )
@@ -683,6 +799,9 @@ async def confirm_plan_modification(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Plan modification failed: {str(e)}",
         )
+    finally:
+        clear_runtime_context()
+        print("[PHASE 1: RUNTIME CONTEXT CLEARED]")
 
 
 @router.post("/chat/{user_id}", response_model=WeeklyPlanResponse)

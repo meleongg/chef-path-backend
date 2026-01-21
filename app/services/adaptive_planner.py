@@ -14,6 +14,7 @@ from langsmith.wrappers import wrap_openai
 import openai
 from app.database import engine
 from app.models import Recipe
+from app.agents.runtime_context import get_runtime_context, get_runtime_state
 from app.schemas.adaptive_planner import (
     HybridSearchInput,
     FinalPlanOutput,
@@ -170,33 +171,50 @@ def finalize_recipe_selection(recipe_ids: List[str]) -> str:
     return f"Successfully selected {len(recipe_ids)} recipes for the weekly plan."
 
 
-@tool(args_schema=HybridSearchInput)
+@tool
 @traceable(name="get_recipe_candidates_tool")
-def get_recipe_candidates(
-    intent_query: str,
-    user_id: str,
-    exclude_ids: List[str] = None,
-    similarity_threshold: float = 0.3,
-    limit: int = 10,
-) -> str:
+def get_recipe_candidates(intent_query: str) -> str:
     """
-    Retrieves the most semantically relevant recipes by performing a vector search,
-    filtered by user-specific negative feedback and exclusion lists.
-    Use this tool to find the optimal candidates for a weekly meal plan.
+    Retrieves the most semantically relevant recipes by performing a vector search.
+
+    Args:
+        intent_query: Search query describing desired recipes (e.g., "beginner-friendly Italian pasta dishes")
+
+    Returns:
+        String summary of found recipes with shortfall information
+
+    Note: user_id, exclude_ids, and frequency are automatically injected from runtime context.
+    You don't need to pass these parameters - they're handled automatically.
     """
     print(f"\n[TOOL: get_recipe_candidates] === CALLED ===")
     print(f"[TOOL] intent_query: {intent_query}")
-    print(f"[TOOL] user_id: {user_id}")
-    print(f"[TOOL] exclude_ids: {exclude_ids}")
-    print(f"[TOOL] similarity_threshold: {similarity_threshold}")
-    print(f"[TOOL] limit: {limit}")
 
-    if exclude_ids is None:
-        exclude_ids = []
+    # Try to get context from runtime (Phase 1 implementation)
+    try:
+        from app.agents.runtime_context import get_runtime_context, get_runtime_state
 
-    # Convert string IDs to UUIDs for database operations
-    user_uuid = str_to_uuid(user_id)
-    exclude_uuids = strs_to_uuids(exclude_ids)
+        context = get_runtime_context()
+        state = get_runtime_state()
+
+        print(f"[TOOL] ✓ Using runtime context")
+        print(f"[TOOL]   user_id: {context.user_id}")
+        print(f"[TOOL]   exclude_ids: {len(context.exclude_ids)} recipes")
+        print(f"[TOOL]   frequency: {context.frequency}")
+
+        # Increment search attempts
+        state.search_attempts += 1
+
+        user_uuid = context.user_id
+        exclude_uuids = context.exclude_ids
+        limit = context.frequency
+
+    except (RuntimeError, ImportError) as e:
+        # Fallback for backward compatibility (will be removed in Phase 2)
+        print(f"[TOOL] ⚠️ Runtime context not available, using fallback: {e}")
+        print(
+            f"[TOOL] This shouldn't happen in production - check context initialization"
+        )
+        return "Error: Runtime context not configured. Please ensure the agent is properly initialized."
 
     db = SessionLocal()
     try:
@@ -206,13 +224,13 @@ def get_recipe_candidates(
             intent_query=intent_query,
             exclude_ids=exclude_uuids,
             limit=limit,
-            similarity_threshold=similarity_threshold,
+            similarity_threshold=0.3,
         )
 
         # Return the results as a string summary for the LLM to process
         if not results:
             print(
-                f"[TOOL: get_recipe_candidates] ❌ No recipes found with similarity > {similarity_threshold}"
+                f"[TOOL: get_recipe_candidates] ❌ No recipes found with similarity > 0.3"
             )
             return "No suitable recipes found based on the hybrid search criteria."
 
@@ -220,6 +238,10 @@ def get_recipe_candidates(
         output_summary = "\n--- Recipe Candidates ---\n"
         for i, (recipe, score) in enumerate(results):
             output_summary += f"{i+1}. ID: {recipe.id}, Name: {recipe.name}, Difficulty: {getattr(recipe, 'difficulty', 'N/A')}, Score: {score:.3f}\n"
+
+        # Update runtime state with found recipe IDs
+        found_ids = [str(recipe.id) for recipe, _ in results]
+        state.candidate_recipes = found_ids
 
         # Add summary line about shortfall
         shortfall = limit - len(results)
@@ -252,21 +274,43 @@ def submit_weekly_plan_selection(final_recipe_ids: List[str]) -> str:
 
 @tool
 @traceable(name="generate_and_save_recipe_tool")
-def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -> str:
+def generate_and_save_new_recipe(recipe_description: str) -> str:
     """
     Generates a new, custom recipe based on the recipe description.
     Saves the new recipe to the database with embeddings for vector search.
 
     Args:
-        recipe_description: Detailed description of the desired recipe (include cuisine, difficulty, goal)
-        user_id: Optional UUID string of the user requesting the recipe
+        recipe_description: Detailed description of the desired recipe
+                          (include cuisine, difficulty, goal)
+                          Example: "A beginner-friendly Italian pasta dish focusing on knife skills"
 
     Returns:
-        A success message with the newly created recipe ID in format: "Successfully generated recipe: <uuid>"
+        A success message with the newly created recipe ID
+
+    Note: user_id and user_goal are automatically injected from runtime context.
     """
     print("\n[TOOL: generate_and_save_new_recipe] === CALLED ===")
     print(f"[TOOL] recipe_description: {recipe_description}")
-    print(f"[TOOL] user_id: {user_id}")
+
+    # Try to get context from runtime
+    try:
+        context = get_runtime_context()
+        state = get_runtime_state()
+
+        print(f"[TOOL] ✓ Using runtime context")
+        print(f"[TOOL]   user_id: {context.user_id}")
+        print(f"[TOOL]   user_goal: {context.user_goal}")
+
+        # Increment generation attempts
+        state.generation_attempts += 1
+
+        user_id_from_context = str(context.user_id)
+        user_goal_from_context = context.user_goal
+
+    except (RuntimeError, ImportError) as e:
+        # Fallback for backward compatibility
+        print(f"[TOOL] ⚠️ Runtime context not available: {e}")
+        return "Error: Runtime context not configured. Please ensure the agent is properly initialized."
 
     # Extract skill level and goal from description or use defaults
     # Simple heuristic: look for keywords
@@ -280,8 +324,8 @@ def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -
     ):
         user_skill = "advanced"
 
-    # Extract goal from description
-    user_goal = "general"
+    # Extract goal from description or use context
+    user_goal = user_goal_from_context
     if "technique" in recipe_description.lower():
         user_goal = "techniques"
     elif (
@@ -383,6 +427,15 @@ def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -
             print("[TOOL] Generating embeddings for vector search...")
             process_single_recipe_embedding_sync(new_recipe.id, db)
 
+            # Update runtime state with new recipe ID
+            try:
+                state.candidate_recipes.append(str(new_recipe.id))
+                print(
+                    f"[TOOL] Updated runtime state: {len(state.candidate_recipes)} recipes in candidate list"
+                )
+            except Exception as e:
+                print(f"[TOOL] ⚠️ Could not update runtime state: {e}")
+
             print(f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully")
 
             # Return in format that execute_tool can parse
@@ -391,7 +444,3 @@ def generate_and_save_new_recipe(recipe_description: str, user_id: str = None) -
     except Exception as e:
         print(f"[TOOL: generate_and_save_new_recipe] ❌ Error: {type(e).__name__}: {e}")
         return f"Failed to generate recipe: {type(e).__name__}: {str(e)}"
-
-    except Exception as e:
-        print(f"Error during generative recipe creation: {e}")
-        return f"Failed to generate and save recipe. Error: {type(e).__name__}"

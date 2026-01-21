@@ -64,6 +64,7 @@ class UserUpdate(BaseModel):
         None, ge=0, description="Maximum acceptable cook time"
     )
 
+
 class UpdateAccountDetails(BaseModel):
     """Schema for updating account details (email, name)"""
 
@@ -85,6 +86,7 @@ class MessageResponse(BaseModel):
     """Generic message response"""
 
     message: str
+
 
 class UserResponse(BaseModel):
     id: UUID
