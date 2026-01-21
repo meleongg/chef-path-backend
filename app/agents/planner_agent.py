@@ -210,70 +210,32 @@ def execute_tool(state: PlanState) -> PlanState:
         print(f"[execute_tool] Tool result type: {type(result)}")
         print(f"[execute_tool] Tool result: {result}")
 
-        # Try to sync runtime state back to graph state
-        try:
-            runtime_state = get_runtime_state()
-            updated_candidates = runtime_state.candidate_recipes
+        # Sync runtime state back to graph state
+        runtime_state = get_runtime_state()
+        updated_candidates = runtime_state.candidate_recipes
 
-            print(f"[execute_tool] ✓ Syncing runtime state → graph state")
+        print(f"[execute_tool] ✓ Syncing runtime state → graph state")
+        print(
+            f"[execute_tool]   candidate_recipes: {len(updated_candidates)} recipes"
+        )
+
+        # Handle finalize_recipe_selection - marks the end of the workflow
+        if tool_name == "finalize_recipe_selection":
+            recipe_ids = tool_call.get("args", {}).get("recipe_ids", [])
             print(
-                f"[execute_tool]   candidate_recipes: {len(updated_candidates)} recipes"
+                f"[execute_tool] Finalizing selection with recipe_ids: {recipe_ids}"
             )
-
-            # Handle finalize_recipe_selection - marks the end of the workflow
-            if tool_name == "finalize_recipe_selection":
-                recipe_ids = tool_call.get("args", {}).get("recipe_ids", [])
-                print(
-                    f"[execute_tool] Finalizing selection with recipe_ids: {recipe_ids}"
-                )
-                return {
-                    "messages": result["messages"],
-                    "candidate_recipes": recipe_ids,
-                    "next_action": "end",
-                }
-
-            # For other tools, sync runtime state to graph state
             return {
                 "messages": result["messages"],
-                "candidate_recipes": updated_candidates,
+                "candidate_recipes": recipe_ids,
+                "next_action": "end",
             }
 
-        except (RuntimeError, ImportError) as e:
-            # Runtime not configured - fall back to old behavior (parsing from tool output)
-            print(f"[execute_tool] ⚠️ Runtime state not available, using fallback: {e}")
-
-            # Fallback behavior for backward compatibility
-            if tool_name == "finalize_recipe_selection":
-                recipe_ids = tool_call.get("args", {}).get("recipe_ids", [])
-                return {
-                    "messages": result["messages"],
-                    "candidate_recipes": recipe_ids,
-                    "next_action": "end",
-                }
-            elif tool_name == "get_recipe_candidates":
-                # Parse IDs from tool output
-                tool_message = result["messages"][0]
-                found_ids = re.findall(r"ID: ([a-f0-9\-]+)", tool_message.content)
-                if found_ids:
-                    return {
-                        "messages": result["messages"],
-                        "candidate_recipes": found_ids,
-                    }
-            elif tool_name == "generate_and_save_new_recipe":
-                # Parse ID from tool output
-                tool_message = result["messages"][0]
-                match = re.search(
-                    r"Successfully generated recipe: ([a-f0-9\-]+)",
-                    tool_message.content,
-                )
-                if match:
-                    current_candidates = state.get("candidate_recipes", [])
-                    return {
-                        "messages": result["messages"],
-                        "candidate_recipes": current_candidates + [match.group(1)],
-                    }
-
-            return result
+        # For other tools, sync runtime state to graph state
+        return {
+            "messages": result["messages"],
+            "candidate_recipes": updated_candidates,
+        }
 
     except Exception as e:
         error_content = f"Tool Execution Failed: The database retrieval encountered an error (e.g., connection timeout or bad query syntax). Error Type: {type(e).__name__}: {str(e)}"

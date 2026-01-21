@@ -189,32 +189,21 @@ def get_recipe_candidates(intent_query: str) -> str:
     print(f"\n[TOOL: get_recipe_candidates] === CALLED ===")
     print(f"[TOOL] intent_query: {intent_query}")
 
-    # Try to get context from runtime (Phase 1 implementation)
-    try:
-        from app.agents.runtime_context import get_runtime_context, get_runtime_state
+    # Get context from runtime (required)
+    context = get_runtime_context()
+    state = get_runtime_state()
 
-        context = get_runtime_context()
-        state = get_runtime_state()
+    print(f"[TOOL] ✓ Using runtime context")
+    print(f"[TOOL]   user_id: {context.user_id}")
+    print(f"[TOOL]   exclude_ids: {len(context.exclude_ids)} recipes")
+    print(f"[TOOL]   frequency: {context.frequency}")
 
-        print(f"[TOOL] ✓ Using runtime context")
-        print(f"[TOOL]   user_id: {context.user_id}")
-        print(f"[TOOL]   exclude_ids: {len(context.exclude_ids)} recipes")
-        print(f"[TOOL]   frequency: {context.frequency}")
+    # Increment search attempts
+    state.search_attempts += 1
 
-        # Increment search attempts
-        state.search_attempts += 1
-
-        user_uuid = context.user_id
-        exclude_uuids = context.exclude_ids
-        limit = context.frequency
-
-    except (RuntimeError, ImportError) as e:
-        # Fallback for backward compatibility (will be removed in Phase 2)
-        print(f"[TOOL] ⚠️ Runtime context not available, using fallback: {e}")
-        print(
-            f"[TOOL] This shouldn't happen in production - check context initialization"
-        )
-        return "Error: Runtime context not configured. Please ensure the agent is properly initialized."
+    user_uuid = context.user_id
+    exclude_uuids = context.exclude_ids
+    limit = context.frequency
 
     db = SessionLocal()
     try:
@@ -292,25 +281,18 @@ def generate_and_save_new_recipe(recipe_description: str) -> str:
     print("\n[TOOL: generate_and_save_new_recipe] === CALLED ===")
     print(f"[TOOL] recipe_description: {recipe_description}")
 
-    # Try to get context from runtime
-    try:
-        context = get_runtime_context()
-        state = get_runtime_state()
+    # Get context from runtime (required)
+    context = get_runtime_context()
+    state = get_runtime_state()
 
-        print(f"[TOOL] ✓ Using runtime context")
-        print(f"[TOOL]   user_id: {context.user_id}")
-        print(f"[TOOL]   user_goal: {context.user_goal}")
+    print(f"[TOOL] ✓ Using runtime context")
+    print(f"[TOOL]   user_id: {context.user_id}")
+    print(f"[TOOL]   user_goal: {context.user_goal}")
 
-        # Increment generation attempts
-        state.generation_attempts += 1
+    # Increment generation attempts
+    state.generation_attempts += 1
 
-        user_id_from_context = str(context.user_id)
-        user_goal_from_context = context.user_goal
-
-    except (RuntimeError, ImportError) as e:
-        # Fallback for backward compatibility
-        print(f"[TOOL] ⚠️ Runtime context not available: {e}")
-        return "Error: Runtime context not configured. Please ensure the agent is properly initialized."
+    user_goal_from_context = context.user_goal
 
     # Extract skill level and goal from description or use defaults
     # Simple heuristic: look for keywords
