@@ -20,7 +20,12 @@ from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
-from app.schemas import WeeklyPlanResponse, PlanGenerationInput, GeneralChatInput
+from app.schemas import (
+    WeeklyPlanResponse,
+    PlanGenerationInput,
+    GeneralChatInput,
+    AdaptiveChatResponse,
+)
 from app.services.intent_classifier import classify_message_intent
 from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
 from app.utils.prompt_helpers import get_goal_description, get_skill_description
@@ -36,6 +41,26 @@ router = APIRouter()
 
 def get_weekly_plan_service() -> WeeklyPlanService:
     return WeeklyPlanService()
+
+
+def _get_general_knowledge_response(user_message: str) -> str:
+    """
+    Helper function to get a general knowledge response from Mise.
+    Reused across multiple endpoints.
+    """
+    llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
+    prompt = (
+        "You are Mise, a friendly and experienced cooking mentor for the ChefPath app. "
+        "Your goal is to help users find their 'mise en place'—getting organized and confident. "
+        "Your primary directives are: "
+        "1. Be helpful, concise, and professional. "
+        "2. Stick strictly to the topic of cooking, ingredients, techniques, or kitchen facts. "
+        "3. Limit your response to a maximum of 150 words. Do not provide disclaimers or commentary. "
+        "Answer the user's question directly and clearly. "
+        f"Question: {user_message}"
+    )
+    response = llm.invoke(prompt)
+    return response.content
 
 
 def cleanup_user_checkpoints(user_id: uuid.UUID):
@@ -95,21 +120,8 @@ async def casual_chat_endpoint(
     Bypasses the expensive LangGraph Agent and RAG tools.
     """
     try:
-        llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
-
-        prompt = (
-            "You are ChefPath, a friendly and experienced cooking assistant. "
-            "Your primary directives are: "
-            "1. Be helpful, concise, and professional. "
-            "2. Stick strictly to the topic of cooking, ingredients, techniques, or kitchen facts. "
-            "3. Limit your response to a maximum of 150 words. Do not provide disclaimers or commentary. "
-            "Answer the user's question directly and clearly."
-            f"Question: {chat_input.user_message}"
-        )
-
-        response = llm.invoke(prompt)
-
-        return {"response": response.content}
+        response_content = _get_general_knowledge_response(chat_input.user_message)
+        return {"response": response_content}
 
     except Exception as e:
         raise HTTPException(
@@ -118,7 +130,7 @@ async def casual_chat_endpoint(
         )
 
 
-@router.post("/adaptive_chat/{user_id}", response_model=Dict[str, str])
+@router.post("/adaptive_chat/{user_id}", response_model=AdaptiveChatResponse)
 async def adaptive_chat_endpoint(
     user_id: uuid.UUID,
     chat_input: GeneralChatInput = Body(...),
@@ -133,8 +145,7 @@ async def adaptive_chat_endpoint(
     - analytics → Medium-cost query endpoint (future implementation)
 
     Returns:
-        response: The AI's response to the user
-        intent: The classified intent (for frontend routing/UX)
+        AdaptiveChatResponse with response text, intent, and confirmation requirements
     """
     try:
         # Step 1: Classify the user's intent (cheap, fast operation)
@@ -145,22 +156,12 @@ async def adaptive_chat_endpoint(
         # Step 2: Route based on intent
         if intent == "general_knowledge":
             print(f"[AdaptiveChat] Routing to: stateless Q&A")
-            # Use cheap, stateless Q&A
-            llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
-            prompt = (
-                "You are ChefPath, a friendly and experienced cooking assistant. "
-                "Your primary directives are: "
-                "1. Be helpful, concise, and professional. "
-                "2. Stick strictly to the topic of cooking, ingredients, techniques, or kitchen facts. "
-                "3. Limit your response to a maximum of 150 words. Do not provide disclaimers or commentary. "
-                "Answer the user's question directly and clearly. "
-                f"Question: {chat_input.user_message}"
+            response_content = _get_general_knowledge_response(chat_input.user_message)
+            return AdaptiveChatResponse(
+                response=response_content,
+                intent=intent,
+                requires_confirmation=False,
             )
-            response = llm.invoke(prompt)
-            return {
-                "response": response.content,
-                "intent": intent,
-            }
 
         elif intent == "plan_modification":
             print(
@@ -176,41 +177,37 @@ async def adaptive_chat_endpoint(
             )
 
             if not last_plan:
-                return {
-                    "response": "You don't have an active meal plan yet. Would you like me to create one?",
-                    "intent": "plan_modification",
-                    "requires_confirmation": "false",
-                }
+                return AdaptiveChatResponse(
+                    response="You don't have an active meal plan yet. Would you like me to create one?",
+                    intent="plan_modification",
+                    requires_confirmation=False,
+                )
 
             # Return a summary of what will be modified for user confirmation
-            return {
-                "response": f"I understand you want to modify your Week {last_plan.week_number} meal plan. I'll help you with that change. Please confirm to proceed.",
-                "intent": intent,
-                "requires_confirmation": "true",
-                "modification_request": chat_input.user_message,  # Pass through for confirmation
-            }
+            return AdaptiveChatResponse(
+                response=f"I understand you want to modify your Week {last_plan.week_number} meal plan. I'll help you with that change. Please confirm to proceed.",
+                intent=intent,
+                requires_confirmation=True,
+                modification_request=chat_input.user_message,
+            )
 
         elif intent == "analytics":
             print(f"[AdaptiveChat] Routing to: analytics")
             # Future: Query user's progress/stats
-            return {
-                "response": "Analytics feature coming soon! You'll be able to track your progress here.",
-                "intent": intent,
-            }
+            return AdaptiveChatResponse(
+                response="Analytics feature coming soon! You'll be able to track your progress here.",
+                intent=intent,
+                requires_confirmation=False,
+            )
 
         else:
             print(f"[AdaptiveChat] Routing to: fallback (general knowledge)")
-            # Fallback to general knowledge
-            llm = ChatOpenAI(model=GENERATIVE_MODEL, temperature=0.5)
-            prompt = (
-                "You are ChefPath, a friendly and experienced cooking assistant. "
-                f"Question: {chat_input.user_message}"
+            response_content = _get_general_knowledge_response(chat_input.user_message)
+            return AdaptiveChatResponse(
+                response=response_content,
+                intent="general_knowledge",
+                requires_confirmation=False,
             )
-            response = llm.invoke(prompt)
-            return {
-                "response": response.content,
-                "intent": "general_knowledge",
-            }
 
     except Exception as e:
         print(f"[AdaptiveChat] Error: {e}")

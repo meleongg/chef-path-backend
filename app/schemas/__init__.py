@@ -198,3 +198,10 @@ class PlanGenerationInput(BaseModel):
 
 class GeneralChatInput(BaseModel):
     user_message: str
+
+
+class AdaptiveChatResponse(BaseModel):
+    response: str
+    intent: str
+    requires_confirmation: bool = False
+    modification_request: Optional[str] = None
