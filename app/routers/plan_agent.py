@@ -302,9 +302,9 @@ async def generate_user_plan_endpoint(
         print("Final state:", final_state)
 
         # Sync final state from runtime (runtime state is source of truth)
-        final_recipe_ids_str: List[
-            str
-        ] = runtime_state.candidate_recipes or final_state.get("candidate_recipes", [])
+        final_recipe_ids_str: List[str] = (
+            runtime_state.candidate_recipes or final_state.get("candidate_recipes", [])
+        )
 
         print("=" * 80)
         print("[PHASE 1: RUNTIME STATE SUMMARY]")
@@ -750,10 +750,9 @@ async def confirm_plan_modification(
             )
 
         # Get results from runtime state (more reliable)
-        updated_recipe_ids_str: List[
-            str
-        ] = runtime_state.candidate_recipes or updated_state.get(
-            "candidate_recipes", []
+        updated_recipe_ids_str: List[str] = (
+            runtime_state.candidate_recipes
+            or updated_state.get("candidate_recipes", [])
         )
 
         print("=" * 80)

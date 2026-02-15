@@ -131,6 +131,11 @@ class TokenResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AccessTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 # Recipe schemas
 class RecipeResponse(BaseModel):
     id: UUID

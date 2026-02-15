@@ -9,6 +9,11 @@ BATCH_SIZE = 50
 SECRET_KEY = "your-secret-key"  # Replace with a secure key in production
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = 14
+REFRESH_TOKEN_COOKIE_NAME = "chefpath_refresh"
+REFRESH_TOKEN_COOKIE_PATH = "/auth/refresh"
+REFRESH_TOKEN_COOKIE_SAMESITE = "lax"
+REFRESH_TOKEN_COOKIE_SECURE = False
 
 # Cooking goal expanded descriptions (for LLM prompts)
 COOKING_GOAL_DESCRIPTIONS = {

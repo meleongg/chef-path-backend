@@ -96,8 +96,7 @@ class AdaptivePlannerService:
             print(
                 f"[get_recipe_candidates_hybrid] SQL exclusion: NOT IN ({exclusion_placeholders[:200]}...)"
             )
-            raw_sql_query = text(
-                f"""
+            raw_sql_query = text(f"""
                 SELECT
                     r.id,
                     r.name,
@@ -111,8 +110,7 @@ class AdaptivePlannerService:
                 ORDER BY
                     similarity_score DESC
                 LIMIT :limit;
-            """
-            )
+            """)
             result = self.db.execute(
                 raw_sql_query,
                 {
@@ -122,8 +120,7 @@ class AdaptivePlannerService:
             ).all()
         else:
             # No exclusions - simpler query
-            raw_sql_query = text(
-                f"""
+            raw_sql_query = text(f"""
                 SELECT
                     r.id,
                     r.name,
@@ -136,8 +133,7 @@ class AdaptivePlannerService:
                 ORDER BY
                     similarity_score DESC
                 LIMIT :limit;
-            """
-            )
+            """)
             result = self.db.execute(
                 raw_sql_query,
                 {
@@ -418,7 +414,9 @@ def generate_and_save_new_recipe(recipe_description: str) -> str:
             except Exception as e:
                 print(f"[TOOL] ⚠️ Could not update runtime state: {e}")
 
-            print(f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully")
+            print(
+                f"[TOOL: generate_and_save_new_recipe] ✅ Recipe created successfully"
+            )
 
             # Return in format that execute_tool can parse
             return f"Successfully generated recipe: {new_recipe.id}\nName: {new_recipe.name}\nCuisine: {new_recipe.cuisine}\nDifficulty: {new_recipe.difficulty}"

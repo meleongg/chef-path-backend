@@ -215,16 +215,12 @@ def execute_tool(state: PlanState) -> PlanState:
         updated_candidates = runtime_state.candidate_recipes
 
         print(f"[execute_tool] ✓ Syncing runtime state → graph state")
-        print(
-            f"[execute_tool]   candidate_recipes: {len(updated_candidates)} recipes"
-        )
+        print(f"[execute_tool]   candidate_recipes: {len(updated_candidates)} recipes")
 
         # Handle finalize_recipe_selection - marks the end of the workflow
         if tool_name == "finalize_recipe_selection":
             recipe_ids = tool_call.get("args", {}).get("recipe_ids", [])
-            print(
-                f"[execute_tool] Finalizing selection with recipe_ids: {recipe_ids}"
-            )
+            print(f"[execute_tool] Finalizing selection with recipe_ids: {recipe_ids}")
             return {
                 "messages": result["messages"],
                 "candidate_recipes": recipe_ids,
