@@ -12,7 +12,6 @@ from alembic import op
 import sqlalchemy as sa
 import pgvector
 
-
 # revision identifiers, used by Alembic.
 revision: str = "13077c338e14"
 down_revision: Union[str, Sequence[str], None] = "7d9d10e55d50"
