@@ -70,11 +70,18 @@ class AdaptivePlannerService:
         exclude_ids: List[uuid.UUID],
         limit: int = 10,
         similarity_threshold: float = 0.3,
+        cuisine: str = None,
+        dietary_restrictions: List[str] = None,
+        allergens: List[str] = None,
+        skill_level: str = None,
+        max_prep_time: int = None,
+        max_cook_time: int = None,
     ) -> List[tuple]:
         """
-        Executes a HYBRID (Vector Search + SQL Filter) query.
+        Executes a HYBRID (Vector Search + SQL Filter + User Preferences) query.
         1. Ranks recipes by semantic similarity (Vector Search).
         2. Excludes recipes that the user has rated poorly (SQL NOT IN filter).
+        3. Filters by user preferences (cuisine, dietary, allergens, skill level, time constraints).
         Returns a list of (Recipe, similarity_score) tuples.
         """
         query_vector = self.embeddings_client.embed_query(intent_query)
@@ -83,64 +90,86 @@ class AdaptivePlannerService:
         print(
             f"[get_recipe_candidates_hybrid] Excluding {len(exclusion_str_list)} recipes: {exclusion_str_list[:5]}..."
         )
+        print(
+            f"[get_recipe_candidates_hybrid] User preferences - Cuisine: {cuisine}, Skill: {skill_level}"
+        )
 
         # Convert list to string format for pgvector - embed directly in SQL
         vector_str = f"'[{','.join(map(str, query_vector))}]'::vector"
 
-        # Build SQL query dynamically based on whether there are exclusions
+        # Build WHERE clause with user preference filters
+        where_conditions = [
+            f"(1 - (r.embedding <=> {vector_str})) > :similarity_threshold"
+        ]
+
+        # Add exclusions if present
         if exclusion_str_list:
-            # Create a comma-separated list of UUIDs for NOT IN clause
             exclusion_placeholders = ", ".join(
                 [f"'{uid}'" for uid in exclusion_str_list]
             )
-            print(
-                f"[get_recipe_candidates_hybrid] SQL exclusion: NOT IN ({exclusion_placeholders[:200]}...)"
+            where_conditions.append(f"r.id NOT IN ({exclusion_placeholders})")
+
+        # Add cuisine filter (prefer user's cuisine but allow others with lower priority)
+        if cuisine:
+            where_conditions.append(
+                f"(r.cuisine = '{cuisine}' OR r.cuisine IS NOT NULL)"
             )
-            raw_sql_query = text(f"""
-                SELECT
-                    r.id,
-                    r.name,
-                    r.content_text,
-                    (1 - (r.embedding <=> {vector_str})) AS similarity_score
-                FROM
-                    recipes r
-                WHERE
-                    r.id NOT IN ({exclusion_placeholders})
-                    AND (1 - (r.embedding <=> {vector_str})) > :similarity_threshold
-                ORDER BY
-                    similarity_score DESC
-                LIMIT :limit;
-            """)
-            result = self.db.execute(
-                raw_sql_query,
-                {
-                    "limit": limit,
-                    "similarity_threshold": similarity_threshold,
-                },
-            ).all()
-        else:
-            # No exclusions - simpler query
-            raw_sql_query = text(f"""
-                SELECT
-                    r.id,
-                    r.name,
-                    r.content_text,
-                    (1 - (r.embedding <=> {vector_str})) AS similarity_score
-                FROM
-                    recipes r
-                WHERE
-                    (1 - (r.embedding <=> {vector_str})) > :similarity_threshold
-                ORDER BY
-                    similarity_score DESC
-                LIMIT :limit;
-            """)
-            result = self.db.execute(
-                raw_sql_query,
-                {
-                    "limit": limit,
-                    "similarity_threshold": similarity_threshold,
-                },
-            ).all()
+
+        # Add skill level filter (match or easier difficulty)
+        if skill_level:
+            skill_map = {
+                "beginner": ["easy"],
+                "intermediate": ["easy", "medium"],
+                "advanced": ["easy", "medium", "hard"],
+            }
+            allowed_difficulties = skill_map.get(
+                skill_level, ["easy", "medium", "hard"]
+            )
+            diff_list = "', '".join(allowed_difficulties)
+            where_conditions.append(
+                f"(r.difficulty IN ('{diff_list}') OR r.difficulty IS NULL)"
+            )
+
+        # Add time constraints
+        if max_prep_time:
+            where_conditions.append(
+                f"(r.prep_time_minutes <= {max_prep_time} OR r.prep_time_minutes IS NULL)"
+            )
+        if max_cook_time:
+            where_conditions.append(
+                f"(r.cook_time_minutes <= {max_cook_time} OR r.cook_time_minutes IS NULL)"
+            )
+
+        where_clause = " AND ".join(where_conditions)
+
+        # Build the complete SQL query with preference filters
+        raw_sql_query = text(f"""
+            SELECT
+                r.id,
+                r.name,
+                r.content_text,
+                (1 - (r.embedding <=> {vector_str})) AS similarity_score,
+                r.cuisine,
+                r.difficulty
+            FROM
+                recipes r
+            WHERE
+                {where_clause}
+            ORDER BY
+                CASE WHEN r.cuisine = :preferred_cuisine THEN 0 ELSE 1 END,
+                similarity_score DESC
+            LIMIT :limit;
+        """)
+
+        result = self.db.execute(
+            raw_sql_query,
+            {
+                "limit": limit,
+                "similarity_threshold": similarity_threshold,
+                "preferred_cuisine": cuisine or "",
+            },
+        ).all()
+
         candidate_ids = [row[0] for row in result]
         recipes_by_id = {
             r.id: r
@@ -193,6 +222,8 @@ def get_recipe_candidates(intent_query: str) -> str:
     print(f"[TOOL]   user_id: {context.user_id}")
     print(f"[TOOL]   exclude_ids: {len(context.exclude_ids)} recipes")
     print(f"[TOOL]   frequency: {context.frequency}")
+    print(f"[TOOL]   cuisine: {context.cuisine}")
+    print(f"[TOOL]   skill_level: {context.skill_level}")
 
     # Increment search attempts
     state.search_attempts += 1
@@ -210,6 +241,12 @@ def get_recipe_candidates(intent_query: str) -> str:
             exclude_ids=exclude_uuids,
             limit=limit,
             similarity_threshold=0.3,
+            cuisine=context.cuisine,
+            dietary_restrictions=context.dietary_restrictions,
+            allergens=context.allergens,
+            skill_level=context.skill_level,
+            max_prep_time=context.max_prep_time_minutes,
+            max_cook_time=context.max_cook_time_minutes,
         )
 
         # Return the results as a string summary for the LLM to process
@@ -226,7 +263,36 @@ def get_recipe_candidates(intent_query: str) -> str:
 
         # Update runtime state with found recipe IDs
         found_ids = [str(recipe.id) for recipe, _ in results]
-        state.candidate_recipes = found_ids
+
+        # In swap mode, store results separately and provide clear instructions
+        if state.is_swap_mode:
+            state.swap_candidates = found_ids
+            print(
+                f"[TOOL: get_recipe_candidates] 🔄 SWAP MODE: Stored {len(found_ids)} candidates in swap_candidates"
+            )
+            print(
+                f"[TOOL: get_recipe_candidates] Current candidate_recipes: {state.candidate_recipes}"
+            )
+            print(
+                f"[TOOL: get_recipe_candidates] Swap candidates: {state.swap_candidates[:3]}..."
+            )
+
+            output_summary += f"\n🔄 SWAP MODE INSTRUCTIONS:\n"
+            output_summary += f"- Current plan has {len(state.candidate_recipes)} recipes: {state.candidate_recipes}\n"
+            output_summary += f"- Found {len(found_ids)} replacement options above\n"
+            output_summary += (
+                f"- Pick the BEST recipe ID from the list above (e.g., the first one)\n"
+            )
+            output_summary += f"- MANUALLY construct a new list by replacing the old recipe ID with the new one\n"
+            output_summary += (
+                f"- Then call finalize_recipe_selection with your new list\n"
+            )
+        else:
+            # Normal mode: replace candidate_recipes with search results
+            state.candidate_recipes = found_ids
+            print(
+                f"[TOOL: get_recipe_candidates] ✅ Updated candidate_recipes with {len(found_ids)} recipes"
+            )
 
         # Add summary line about shortfall
         shortfall = limit - len(results)

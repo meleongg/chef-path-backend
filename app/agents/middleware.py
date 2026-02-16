@@ -9,6 +9,7 @@ Implements message management and optimization patterns:
 from typing import Dict, Any, List
 from langchain_core.messages import ToolMessage, AIMessage
 from langchain_core.messages import SystemMessage, AnyMessage
+from app.agents.runtime_context import get_runtime_context
 
 
 def trim_messages(state: Dict[str, Any], max_messages: int = 10) -> Dict[str, Any]:
@@ -77,6 +78,25 @@ def create_context_message(state: Dict[str, Any]) -> SystemMessage:
     Returns:
         SystemMessage with context information
     """
+
+    # Get user preferences from runtime context
+    try:
+        context = get_runtime_context()
+        cuisine = context.cuisine or "not specified"
+        dietary_restrictions = (
+            ", ".join(context.dietary_restrictions)
+            if context.dietary_restrictions
+            else "none"
+        )
+        allergens = ", ".join(context.allergens) if context.allergens else "none"
+        skill_level = context.skill_level or "intermediate"
+    except:
+        # Fallback if runtime context not available
+        cuisine = "not specified"
+        dietary_restrictions = "none"
+        allergens = "none"
+        skill_level = "intermediate"
+
     user_id = state.get("user_id", "unknown")
     user_goal = state.get("user_goal", "general")
     frequency = state.get("frequency", 3)
@@ -87,6 +107,16 @@ def create_context_message(state: Dict[str, Any]) -> SystemMessage:
 - user_goal: {user_goal}
 - frequency: {frequency} meals
 - exclude_ids: {len(exclude_ids)} recipes excluded (difficult + recently completed)
+
+USER PREFERENCES (MUST RESPECT):
+- Preferred Cuisine: {cuisine}
+- Skill Level: {skill_level}
+- Dietary Restrictions: {dietary_restrictions}
+- Allergens to Avoid: {allergens}
+
+IMPORTANT: When searching for recipes, you MUST prioritize the user's preferred cuisine ({cuisine}).
+The search tool will automatically filter by these preferences, but ensure your search queries
+align with the user's cuisine preference and skill level.
 
 You have access to tools that automatically use this context.
 DO NOT pass user_id or exclude_ids explicitly - they are injected automatically.""")

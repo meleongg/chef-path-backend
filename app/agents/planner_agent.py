@@ -112,6 +112,47 @@ Example:
 - Search for vegetarian → "recipe-D-id"
 - Updated: ["recipe-A-id", "recipe-D-id", "recipe-C-id"]
 
+RECIPE SWAP MODE:
+When handling a targeted recipe swap request:
+1. You will receive an explicit swap request telling you:
+   - The specific OLD recipe ID to replace (e.g., "recipe-B")
+   - User's reason/context for the swap
+   - Current recipe list is already in candidate_recipes
+
+2. STEP 1 - Search for replacement:
+   - Call get_recipe_candidates() with a search query that includes:
+     * User's preferred cuisine (from CURRENT CONTEXT)
+     * The swap reason
+     * User's skill level
+   - Example: "Chinese vegetarian recipe for intermediate"
+   
+3. STEP 2 - Parse the tool response:
+   - The tool returns a list like: "1. ID: abc-123, Name: Recipe Name, ..."
+   - Extract the FIRST recipe ID from this list (the ID after "ID: ")
+   - This is your NEW recipe ID
+   
+4. STEP 3 - Construct the swapped list:
+   - Take the current candidate_recipes list (e.g., ["recipe-A", "recipe-B", "recipe-C"])
+   - Find the OLD recipe ID you need to replace (from the swap request message)
+   - Replace it with the NEW recipe ID you just extracted
+   - Example: If replacing "recipe-B", result is ["recipe-A", "NEW-ID", "recipe-C"]
+   
+5. STEP 4 - Finalize:
+   - Call finalize_recipe_selection(your_new_list)
+   - Pass the complete list with exactly ONE recipe swapped
+
+CRITICAL: You MUST parse the recipe ID from the tool response text and construct the new list yourself.
+The tool response shows recipes like "1. ID: d27d9489-014c-462b-a524-1df0c0829bc4, Name: ..."
+Extract that UUID and use it in your list.
+
+Example Complete Swap:
+- Swap request: "Replace recipe d275e741-8e75-4623-821e-190d408571b5"
+- Current candidate_recipes: ["abc-123", "d275e741-8e75-4623-821e-190d408571b5"]
+- Search returns: "1. ID: new-recipe-456, Name: Kung Pao Chicken, ..."
+- Extract: new-recipe-456
+- Construct: ["abc-123", "new-recipe-456"]
+- Call: finalize_recipe_selection(["abc-123", "new-recipe-456"])
+
 RULES:
 - Tools automatically access user context - don't pass it manually
 - Only generate recipes when there's a genuine shortfall

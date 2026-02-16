@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
 from app.database import get_db
-from app.models import User, WeeklyPlan, UserRecipeProgress
+from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe
 from app.services.weekly_plan import WeeklyPlanService
 from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
 from app.schemas import (
@@ -25,10 +25,17 @@ from app.schemas import (
     PlanGenerationInput,
     GeneralChatInput,
     AdaptiveChatResponse,
+    SwapRecipeRequest,
+    SwapRecipeResponse,
+    RecipeResponse,
 )
 from app.services.intent_classifier import classify_message_intent
 from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
 from app.utils.prompt_helpers import get_goal_description, get_skill_description
+from app.services.weekly_plan import (
+    validate_recipe_can_be_swapped,
+    cleanup_swapped_recipe_progress,
+)
 
 # Load environment variables
 load_dotenv()
@@ -141,11 +148,12 @@ async def adaptive_chat_endpoint(
 
     Routes:
     - general_knowledge → Fast, cheap Q&A (stateless)
-    - plan_modification → Expensive LangGraph agent (stateful)
     - analytics → Medium-cost query endpoint (future implementation)
 
+    Note: Recipe modifications are now handled via dedicated /swap-recipe endpoint.
+
     Returns:
-        AdaptiveChatResponse with response text, intent, and confirmation requirements
+        AdaptiveChatResponse with response text and intent
     """
     try:
         # Step 1: Classify the user's intent (cheap, fast operation)
@@ -160,35 +168,6 @@ async def adaptive_chat_endpoint(
             return AdaptiveChatResponse(
                 response=response_content,
                 intent=intent,
-                requires_confirmation=False,
-            )
-
-        elif intent == "plan_modification":
-            print(
-                f"[AdaptiveChat] Routing to: plan modification (requires confirmation)"
-            )
-
-            # Check if user has an existing plan
-            last_plan = (
-                db.query(WeeklyPlan)
-                .filter(WeeklyPlan.user_id == user_id)
-                .order_by(WeeklyPlan.week_number.desc())
-                .first()
-            )
-
-            if not last_plan:
-                return AdaptiveChatResponse(
-                    response="You don't have an active meal plan yet. Would you like me to create one?",
-                    intent="plan_modification",
-                    requires_confirmation=False,
-                )
-
-            # Return a summary of what will be modified for user confirmation
-            return AdaptiveChatResponse(
-                response=f"I understand you want to modify your Week {last_plan.week_number} meal plan. I'll help you with that change. Please confirm to proceed.",
-                intent=intent,
-                requires_confirmation=True,
-                modification_request=chat_input.user_message,
             )
 
         elif intent == "analytics":
@@ -197,16 +176,15 @@ async def adaptive_chat_endpoint(
             return AdaptiveChatResponse(
                 response="Analytics feature coming soon! You'll be able to track your progress here.",
                 intent=intent,
-                requires_confirmation=False,
             )
 
         else:
+            # Fallback
             print(f"[AdaptiveChat] Routing to: fallback (general knowledge)")
             response_content = _get_general_knowledge_response(chat_input.user_message)
             return AdaptiveChatResponse(
                 response=response_content,
                 intent="general_knowledge",
-                requires_confirmation=False,
             )
 
     except Exception as e:
@@ -215,6 +193,301 @@ async def adaptive_chat_endpoint(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Error processing chat message: {str(e)}",
         )
+
+
+@router.post("/swap-recipe/{user_id}")
+async def swap_recipe_endpoint(
+    user_id: uuid.UUID,
+    swap_request: SwapRecipeRequest = Body(...),
+    request: Request = None,
+    plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Swap a single recipe in the user's weekly plan with an AI-powered replacement.
+
+    Args:
+        user_id: The user's UUID
+        swap_request: Contains recipe_id_to_replace, optional week_number, and swap_context
+
+    Returns:
+        SwapRecipeResponse with old and new recipe details
+
+    Raises:
+        400: Recipe is already completed or not found in plan
+        404: User or plan not found
+        500: Swap operation failed
+    """
+    print(f"\n[SwapRecipe] Starting swap for user: {user_id}")
+    print(f"[SwapRecipe] Recipe to replace: {swap_request.recipe_id_to_replace}")
+    print(f"[SwapRecipe] Swap context: {swap_request.swap_context}")
+
+    try:
+        # 1. Validate user exists
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # 2. Get target week (provided or most recent)
+        if swap_request.week_number is not None:
+            target_plan = (
+                db.query(WeeklyPlan)
+                .filter(
+                    WeeklyPlan.user_id == user_id,
+                    WeeklyPlan.week_number == swap_request.week_number,
+                )
+                .first()
+            )
+        else:
+            target_plan = (
+                db.query(WeeklyPlan)
+                .filter(WeeklyPlan.user_id == user_id)
+                .order_by(WeeklyPlan.week_number.desc())
+                .first()
+            )
+
+        if not target_plan:
+            raise HTTPException(status_code=404, detail="Weekly plan not found")
+
+        print(f"[SwapRecipe] Target week: {target_plan.week_number}")
+
+        # 3. Load current plan and parse recipe_ids
+        try:
+            current_recipe_ids_str = json.loads(target_plan.recipe_ids)
+            print(
+                f"[SwapRecipe] Current plan has {len(current_recipe_ids_str)} recipes"
+            )
+        except Exception as e:
+            print(f"[SwapRecipe] Error parsing recipe IDs: {e}")
+            raise HTTPException(status_code=400, detail="Invalid plan data")
+
+        # 4. Validate recipe_id_to_replace is in the plan
+        recipe_id_str = str(swap_request.recipe_id_to_replace)
+        if recipe_id_str not in current_recipe_ids_str:
+            raise HTTPException(
+                status_code=404,
+                detail="Recipe not found in weekly plan",
+            )
+
+        # Get old recipe details before swap
+        old_recipe = (
+            db.query(Recipe)
+            .filter(Recipe.id == swap_request.recipe_id_to_replace)
+            .first()
+        )
+        if not old_recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found in database")
+
+        print(f"[SwapRecipe] Swapping recipe: {old_recipe.name}")
+
+        # 5. Validate recipe is NOT completed
+        validate_recipe_can_be_swapped(
+            user_id=user_id,
+            recipe_id=swap_request.recipe_id_to_replace,
+            week_number=target_plan.week_number,
+            db=db,
+        )
+
+        # 6. Get exclusion IDs
+        exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
+            user, db, current_week=target_plan.week_number
+        )
+
+        # Add the recipe being swapped to exclusions (prevent recommending same recipe)
+        if swap_request.recipe_id_to_replace not in exclusion_ids:
+            exclusion_ids.append(swap_request.recipe_id_to_replace)
+            print(
+                f"[SwapRecipe] Added recipe {swap_request.recipe_id_to_replace} to exclusions"
+            )
+
+        exclude_ids_str = uuids_to_strs(exclusion_ids)
+
+        # 7. Initialize runtime context with full user preferences
+        runtime_context = PlannerContext(
+            user_id=user.id,
+            user_goal=user.user_goal,
+            frequency=user.frequency,
+            exclude_ids=exclusion_ids,
+            skill_level=getattr(user, "skill_level", None),
+            cuisine=getattr(user, "cuisine", None),
+            dietary_restrictions=json.loads(
+                getattr(user, "dietary_restrictions", "[]") or "[]"
+            ),
+            allergens=json.loads(getattr(user, "allergens", "[]") or "[]"),
+            preferred_portion_size=getattr(user, "preferred_portion_size", None),
+            max_prep_time_minutes=getattr(user, "max_prep_time_minutes", None),
+            max_cook_time_minutes=getattr(user, "max_cook_time_minutes", None),
+        )
+
+        runtime_state = PlannerRuntimeState(
+            candidate_recipes=current_recipe_ids_str.copy(),
+            search_attempts=0,
+            generation_attempts=0,
+            is_swap_mode=True,  # Enable swap mode behavior
+        )
+
+        set_runtime_context(runtime_context, runtime_state)
+
+        print("=" * 80)
+        print("[SwapRecipe: RUNTIME CONTEXT INITIALIZED]")
+        print(f"  user_id: {runtime_context.user_id}")
+        print(f"  frequency: {runtime_context.frequency}")
+        print(f"  cuisine: {runtime_context.cuisine}")
+        print(f"  dietary_restrictions: {runtime_context.dietary_restrictions}")
+        print(f"  allergens: {runtime_context.allergens}")
+        print(f"  current recipes: {len(runtime_state.candidate_recipes)}")
+        print("=" * 80)
+
+        # 8. Build focused agent message with explicit swap instructions
+        swap_message = f"""RECIPE SWAP REQUEST:
+
+OLD RECIPE TO REPLACE:
+- ID: {recipe_id_str}
+- Name: {old_recipe.name}
+
+CURRENT PLAN (candidate_recipes):
+{current_recipe_ids_str}
+
+USER'S SWAP REASON: {swap_request.swap_context}
+
+YOUR TASK:
+1. Search for ONE replacement recipe matching the user's cuisine and swap reason
+2. Extract the new recipe ID from the search results
+3. Replace {recipe_id_str} in the current plan with the new recipe ID
+4. Call finalize_recipe_selection with the updated list (only ONE recipe changed)
+
+Keep all other recipes unchanged."""
+
+        # 9. Invoke LangGraph agent
+        checkpointer = request.app.state.checkpoint_saver
+        agent = get_agent_with_checkpointer(checkpointer)
+        thread_id_str = f"{user_id}_swap_{target_plan.week_number}"
+
+        agent_state: PlanState = {
+            "messages": [HumanMessage(content=swap_message)],
+            "user_id": str(user_id),
+            "user_goal": user.user_goal,
+            "candidate_recipes": current_recipe_ids_str,
+            "frequency": user.frequency,
+            "exclude_ids": exclude_ids_str,
+        }
+
+        print(f"[SwapRecipe] Invoking agent for swap...")
+
+        with tracing_context(enabled=TRACING_ENABLED):
+            updated_state: PlanState = agent.invoke(
+                agent_state,
+                config={
+                    "configurable": {"thread_id": thread_id_str},
+                    "recursion_limit": 25,
+                },
+            )
+
+        # 10. Extract updated recipe list
+        updated_recipe_ids_str: List[str] = (
+            runtime_state.candidate_recipes
+            or updated_state.get("candidate_recipes", [])
+        )
+
+        print(f"[SwapRecipe] Agent returned {len(updated_recipe_ids_str)} recipes")
+        print(f"[SwapRecipe] Current recipes: {current_recipe_ids_str}")
+        print(f"[SwapRecipe] Updated recipes: {updated_recipe_ids_str}")
+
+        if not updated_recipe_ids_str:
+            raise ValueError("No recipes selected after swap")
+
+        # 11. Validate exactly ONE recipe changed
+        changed_recipes = set(updated_recipe_ids_str) - set(current_recipe_ids_str)
+        removed_recipes = set(current_recipe_ids_str) - set(updated_recipe_ids_str)
+
+        print(f"[SwapRecipe] Added: {changed_recipes}")
+        print(f"[SwapRecipe] Removed: {removed_recipes}")
+
+        if len(changed_recipes) != 1 or len(removed_recipes) != 1:
+            print(
+                f"[SwapRecipe] ⚠️ Unexpected swap: {len(changed_recipes)} added, {len(removed_recipes)} removed"
+            )
+            print(
+                f"[SwapRecipe] Swap candidates found: {runtime_state.swap_candidates}"
+            )
+
+            # If agent didn't swap correctly, try to recover
+            if len(changed_recipes) >= 1:
+                new_recipe_id_str = list(changed_recipes)[0]
+                print(
+                    f"[SwapRecipe] Recovering: Using first new recipe {new_recipe_id_str}"
+                )
+            elif len(runtime_state.swap_candidates) > 0:
+                # Agent found candidates but didn't use them - use the first one
+                new_recipe_id_str = runtime_state.swap_candidates[0]
+                print(
+                    f"[SwapRecipe] Recovering: Using first swap candidate {new_recipe_id_str}"
+                )
+                # Manually construct the correct swap
+                updated_recipe_ids_str = [
+                    new_recipe_id_str if rid == recipe_id_str else rid
+                    for rid in current_recipe_ids_str
+                ]
+                print(
+                    f"[SwapRecipe] Manually constructed swap: {updated_recipe_ids_str}"
+                )
+            else:
+                error_msg = f"Agent did not provide a replacement recipe. Added: {len(changed_recipes)}, Removed: {len(removed_recipes)}"
+                raise ValueError(error_msg)
+        else:
+            new_recipe_id_str = list(changed_recipes)[0]
+
+        print(f"[SwapRecipe] New recipe ID: {new_recipe_id_str}")
+
+        # Get new recipe details
+        new_recipe = (
+            db.query(Recipe).filter(Recipe.id == uuid.UUID(new_recipe_id_str)).first()
+        )
+        if not new_recipe:
+            raise HTTPException(
+                status_code=500, detail="New recipe not found in database"
+            )
+
+        # 12. Update WeeklyPlan.recipe_ids
+        target_plan.recipe_ids = json.dumps(updated_recipe_ids_str)
+        db.commit()
+        db.refresh(target_plan)
+
+        print(f"[SwapRecipe] ✅ Plan updated successfully")
+        print(f"[SwapRecipe] Swapped: {old_recipe.name} → {new_recipe.name}")
+
+        # 13. Delete old UserRecipeProgress entry
+        cleanup_swapped_recipe_progress(
+            user_id=user_id,
+            old_recipe_id=swap_request.recipe_id_to_replace,
+            week_number=target_plan.week_number,
+            db=db,
+        )
+        db.commit()
+
+        # 14. Return both old and new recipe details
+        return SwapRecipeResponse(
+            success=True,
+            old_recipe=RecipeResponse.model_validate(old_recipe),
+            new_recipe=RecipeResponse.model_validate(new_recipe),
+            message=f"Successfully swapped {old_recipe.name} with {new_recipe.name}",
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        print(f"[SwapRecipe] ValueError: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"[SwapRecipe] Exception: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Recipe swap failed: {str(e)}",
+        )
+    finally:
+        clear_runtime_context()
+        print("[SwapRecipe: RUNTIME CONTEXT CLEARED]")
 
 
 @router.post("/generate/{user_id}", response_model=WeeklyPlanResponse)
@@ -252,12 +525,21 @@ async def generate_user_plan_endpoint(
         frequency=user.frequency,
         exclude_ids=exclusion_ids,
         skill_level=getattr(user, "skill_level", None),
+        cuisine=getattr(user, "cuisine", None),
+        dietary_restrictions=json.loads(
+            getattr(user, "dietary_restrictions", "[]") or "[]"
+        ),
+        allergens=json.loads(getattr(user, "allergens", "[]") or "[]"),
+        preferred_portion_size=getattr(user, "preferred_portion_size", None),
+        max_prep_time_minutes=getattr(user, "max_prep_time_minutes", None),
+        max_cook_time_minutes=getattr(user, "max_cook_time_minutes", None),
     )
 
     runtime_state = PlannerRuntimeState(
         candidate_recipes=[],
         search_attempts=0,
         generation_attempts=0,
+        is_swap_mode=False,
     )
 
     # Set runtime context for tools to access
@@ -625,191 +907,3 @@ async def generate_next_week_plan(
         # Clean up runtime context
         clear_runtime_context()
         print("[PHASE 1: RUNTIME CONTEXT CLEARED]")
-
-
-@router.post("/chat/confirm_modification/{user_id}", response_model=WeeklyPlanResponse)
-async def confirm_plan_modification(
-    user_id: uuid.UUID,
-    input: GeneralChatInput = Body(...),
-    request: Request = None,
-    plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Executes the plan modification after user confirms.
-    Uses LangGraph checkpointing to load previous conversation state.
-    """
-    print(f"\n[ConfirmModification] Starting for user: {user_id}")
-    print(f"[ConfirmModification] Modification request: {input.user_message}")
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-
-    last_plan = (
-        db.query(WeeklyPlan)
-        .filter(WeeklyPlan.user_id == user_id)
-        .order_by(WeeklyPlan.week_number.desc())
-        .first()
-    )
-    if not last_plan:
-        raise HTTPException(status_code=404, detail="No existing weekly plan found.")
-
-    thread_id_str = str(user_id)
-
-    # Get current recipe IDs from the plan (as strings for agent)
-    try:
-        current_recipe_ids_str = json.loads(last_plan.recipe_ids)
-        print(
-            f"[ConfirmModification] Current plan has {len(current_recipe_ids_str)} recipes"
-        )
-    except Exception as e:
-        print(f"[ConfirmModification] Error parsing recipe IDs: {e}")
-        raise HTTPException(status_code=400, detail="Invalid plan data")
-
-    try:
-        # Get checkpointer and compile agent
-        checkpointer = request.app.state.checkpoint_saver
-        agent = get_agent_with_checkpointer(checkpointer)
-
-        print(f"[ConfirmModification] Loading checkpoint for thread: {thread_id_str}")
-
-        # Load the previous checkpoint to get context
-        checkpoint_config = {"configurable": {"thread_id": thread_id_str}}
-        previous_checkpoint = checkpointer.get(checkpoint_config)
-
-        if previous_checkpoint:
-            print(f"[ConfirmModification] ✅ Found existing checkpoint")
-            # Extract previous state
-            previous_state = previous_checkpoint.get("channel_values", {})
-            previous_messages = previous_state.get("messages", [])
-            print(
-                f"[ConfirmModification] Previous conversation had {len(previous_messages)} messages"
-            )
-        else:
-            print(
-                f"[ConfirmModification] ⚠️ No previous checkpoint found, starting fresh"
-            )
-            previous_messages = []
-
-        # Get exclusion IDs (use last_plan.week_number for current week context)
-        exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
-            user, db, current_week=last_plan.week_number
-        )
-
-        exclude_ids_str = uuids_to_strs(exclusion_ids)
-
-        # PHASE 1: Initialize runtime context for modification
-        runtime_context = PlannerContext(
-            user_id=user.id,
-            user_goal=user.user_goal,
-            frequency=user.frequency,
-            exclude_ids=exclusion_ids,
-            skill_level=getattr(user, "skill_level", None),
-        )
-
-        runtime_state = PlannerRuntimeState(
-            candidate_recipes=current_recipe_ids_str,  # Start with current recipes
-            search_attempts=0,
-            generation_attempts=0,
-        )
-
-        # Set runtime context for tools to access
-        set_runtime_context(runtime_context, runtime_state)
-
-        print("=" * 80)
-        print("[PHASE 1: RUNTIME CONTEXT INITIALIZED FOR MODIFICATION]")
-        print(f"  user_id: {runtime_context.user_id}")
-        print(f"  frequency: {runtime_context.frequency}")
-        print(f"  current recipes: {len(runtime_state.candidate_recipes)}")
-        print("=" * 80)
-
-        # Create new state that includes:
-        # 1. Previous conversation context (if any)
-        # 2. Current recipe list
-        # 3. New modification request
-        new_state: PlanState = {
-            "messages": previous_messages + [HumanMessage(content=input.user_message)],
-            "user_id": str(user_id),
-            "user_goal": user.user_goal,
-            "candidate_recipes": current_recipe_ids_str,
-            "frequency": user.frequency,
-            "exclude_ids": exclude_ids_str,
-        }
-
-        print(f"[ConfirmModification] Invoking agent with modification request...")
-
-        # Invoke agent with the modification request
-        with tracing_context(enabled=TRACING_ENABLED):
-            updated_state: PlanState = agent.invoke(
-                new_state,
-                config={
-                    "configurable": {"thread_id": thread_id_str},
-                    "recursion_limit": 25,
-                },
-            )
-
-        # Get results from runtime state (more reliable)
-        updated_recipe_ids_str: List[str] = (
-            runtime_state.candidate_recipes
-            or updated_state.get("candidate_recipes", [])
-        )
-
-        print("=" * 80)
-        print("[PHASE 1: MODIFICATION RUNTIME STATE SUMMARY]")
-        print(f"  Search attempts: {runtime_state.search_attempts}")
-        print(f"  Generation attempts: {runtime_state.generation_attempts}")
-        print(f"  Updated recipes: {len(updated_recipe_ids_str)}")
-        print("=" * 80)
-
-        print(
-            f"[ConfirmModification] Agent returned {len(updated_recipe_ids_str)} recipes"
-        )
-
-        if not updated_recipe_ids_str:
-            raise ValueError("No recipes selected after plan modification.")
-
-        # Check if recipes actually changed
-        if set(updated_recipe_ids_str) == set(current_recipe_ids_str):
-            print(f"[ConfirmModification] ⚠️ No changes detected in recipe selection")
-        else:
-            print(f"[ConfirmModification] ✅ Recipes changed, updating plan...")
-
-        # Update the plan with new recipe IDs
-        recipe_ids_str = json.dumps(updated_recipe_ids_str)
-        last_plan.recipe_ids = recipe_ids_str
-        db.commit()
-        db.refresh(last_plan)
-
-        print(f"[ConfirmModification] ✅ Plan updated successfully")
-
-        return last_plan
-
-    except ValueError as e:
-        print(f"[ConfirmModification] ValueError: {e}")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        print(f"[ConfirmModification] Exception: {e}")
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Plan modification failed: {str(e)}",
-        )
-    finally:
-        clear_runtime_context()
-        print("[PHASE 1: RUNTIME CONTEXT CLEARED]")
-
-
-@router.post("/chat/{user_id}", response_model=WeeklyPlanResponse)
-async def chat_modify_plan_endpoint(
-    user_id: uuid.UUID,
-    input: GeneralChatInput = Body(...),
-    request: Request = None,
-    plan_service: Annotated[WeeklyPlanService, Depends(get_weekly_plan_service)] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    DEPRECATED: Use /chat/confirm_modification/{user_id} instead.
-    Kept for backwards compatibility.
-    """
-    return await confirm_plan_modification(user_id, input, request, plan_service, db)

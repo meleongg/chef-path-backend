@@ -24,6 +24,12 @@ class PlannerContext(BaseModel):
     frequency: int
     exclude_ids: List[uuid.UUID]
     skill_level: Optional[str] = None
+    cuisine: Optional[str] = None
+    dietary_restrictions: Optional[List[str]] = None
+    allergens: Optional[List[str]] = None
+    preferred_portion_size: Optional[str] = None
+    max_prep_time_minutes: Optional[int] = None
+    max_cook_time_minutes: Optional[int] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -35,6 +41,8 @@ class PlannerRuntimeState(BaseModel):
     candidate_recipes: List[str] = []
     search_attempts: int = 0
     generation_attempts: int = 0
+    is_swap_mode: bool = False  # Flag to indicate swap mode behavior
+    swap_candidates: List[str] = []  # Available replacement recipes in swap mode
 
 
 # Context variable for thread-safe runtime access

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 from uuid import UUID
 
@@ -178,6 +178,10 @@ class FeedbackCreate(BaseModel):
     feedback: str = Field(..., pattern="^(too_easy|just_right|too_hard)$")
 
 
+class UpdateRecipeStatus(BaseModel):
+    status: Literal["not_started", "completed"]
+
+
 class UserRecipeProgressResponse(BaseModel):
     id: UUID
     user_id: UUID
@@ -208,5 +212,23 @@ class GeneralChatInput(BaseModel):
 class AdaptiveChatResponse(BaseModel):
     response: str
     intent: str
-    requires_confirmation: bool = False
-    modification_request: Optional[str] = None
+
+
+class SwapRecipeRequest(BaseModel):
+    recipe_id_to_replace: UUID
+    week_number: Optional[int] = Field(
+        None, description="Week number to modify (defaults to most recent)"
+    )
+    swap_context: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Reason for swap and desired replacement characteristics",
+    )
+
+
+class SwapRecipeResponse(BaseModel):
+    success: bool
+    old_recipe: RecipeResponse
+    new_recipe: RecipeResponse
+    message: str

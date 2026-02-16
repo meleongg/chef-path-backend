@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe
 from datetime import datetime, timezone
 from sqlalchemy import select
+from fastapi import HTTPException
 
 
 class WeeklyPlanService:
@@ -349,3 +350,72 @@ class WeeklyPlanService:
             ),
             "skill_progression": skill_progression,
         }
+
+
+def validate_recipe_can_be_swapped(
+    user_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    week_number: int,
+    db: Session,
+) -> None:
+    """
+    Validates that a recipe can be swapped (not completed).
+    Raises HTTPException(400) if recipe is completed.
+
+    Args:
+        user_id: The user's UUID
+        recipe_id: The recipe UUID to check
+        week_number: The week number
+        db: Database session
+
+    Raises:
+        HTTPException: If recipe is already completed
+    """
+    progress = (
+        db.query(UserRecipeProgress)
+        .filter(
+            UserRecipeProgress.user_id == user_id,
+            UserRecipeProgress.recipe_id == recipe_id,
+            UserRecipeProgress.week_number == week_number,
+        )
+        .first()
+    )
+
+    if progress and progress.status == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot swap a completed recipe",
+        )
+
+
+def cleanup_swapped_recipe_progress(
+    user_id: uuid.UUID,
+    old_recipe_id: uuid.UUID,
+    week_number: int,
+    db: Session,
+) -> None:
+    """
+    Deletes progress for a swapped-out recipe.
+    Prevents orphaned progress entries.
+
+    Args:
+        user_id: The user's UUID
+        old_recipe_id: The recipe UUID that was removed
+        week_number: The week number
+        db: Database session
+    """
+    progress = (
+        db.query(UserRecipeProgress)
+        .filter(
+            UserRecipeProgress.user_id == user_id,
+            UserRecipeProgress.recipe_id == old_recipe_id,
+            UserRecipeProgress.week_number == week_number,
+        )
+        .first()
+    )
+
+    if progress:
+        db.delete(progress)
+        print(
+            f"[SwapCleanup] Deleted progress for swapped recipe {old_recipe_id} in week {week_number}"
+        )

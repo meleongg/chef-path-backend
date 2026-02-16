@@ -3,10 +3,16 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.auth import get_current_user
-from app.schemas import FeedbackCreate, UserRecipeProgressResponse, ProgressSummary
+from app.schemas import (
+    FeedbackCreate,
+    UserRecipeProgressResponse,
+    ProgressSummary,
+    UpdateRecipeStatus,
+)
 from app.services.weekly_plan import WeeklyPlanService
-from app.models import UserRecipeProgress
+from app.models import UserRecipeProgress, User, Recipe
 from uuid import UUID
+from datetime import datetime
 
 router = APIRouter()
 plan_service = WeeklyPlanService()
@@ -122,5 +128,72 @@ async def get_recipe_progress(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Recipe progress not found"
         )
+
+    return progress
+
+
+@router.patch(
+    "/progress/{user_id}/recipe/{recipe_id}/week/{week_number}",
+    response_model=UserRecipeProgressResponse,
+)
+async def update_recipe_status(
+    user_id: UUID,
+    recipe_id: UUID,
+    week_number: int,
+    status_update: UpdateRecipeStatus,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Update the status of a recipe (mark as incomplete/complete).
+
+    This allows users to toggle between completed and not_started states.
+    When marking as incomplete, feedback and rating are cleared.
+    """
+
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Verify recipe exists
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    # Find or create progress entry
+    progress = (
+        db.query(UserRecipeProgress)
+        .filter(
+            UserRecipeProgress.user_id == user_id,
+            UserRecipeProgress.recipe_id == recipe_id,
+            UserRecipeProgress.week_number == week_number,
+        )
+        .first()
+    )
+
+    if not progress:
+        # Create new progress entry
+        progress = UserRecipeProgress(
+            user_id=user_id,
+            recipe_id=recipe_id,
+            week_number=week_number,
+            status=status_update.status,
+        )
+        db.add(progress)
+    else:
+        # Update existing progress
+        progress.status = status_update.status
+
+        if status_update.status == "completed":
+            progress.completed_at = datetime.utcnow()
+        elif status_update.status == "not_started":
+            # Clear completion data when marking as incomplete
+            progress.completed_at = None
+            progress.feedback = None
+            progress.rating = None
+
+    db.commit()
+    db.refresh(progress)
 
     return progress

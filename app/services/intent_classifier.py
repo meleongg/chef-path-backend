@@ -3,8 +3,9 @@ Intent Classification Service for Chat Routing
 
 This service determines whether a user's message requires:
 1. General Q&A (cheap, stateless) - e.g., "What is a roux?"
-2. Plan Modification (expensive, stateful) - e.g., "Replace the chicken recipe"
-3. Analytics/Progress (medium cost) - e.g., "How many recipes have I completed?"
+2. Analytics/Progress (medium cost) - e.g., "How many recipes have I completed?"
+
+Note: Recipe modifications are now handled via dedicated swap endpoint, not chat.
 """
 
 from typing import Literal
@@ -12,7 +13,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.constants import GENERATIVE_MODEL
 
-IntentType = Literal["general_knowledge", "plan_modification", "analytics"]
+IntentType = Literal["general_knowledge", "analytics"]
 
 
 class IntentClassifier:
@@ -27,13 +28,13 @@ class IntentClassifier:
 
     def classify_intent(self, user_message: str) -> IntentType:
         """
-        Classify user intent into one of three categories.
+        Classify user intent into one of two categories.
 
         Args:
             user_message: The user's chat message
 
         Returns:
-            IntentType: One of "general_knowledge", "plan_modification", or "analytics"
+            IntentType: One of "general_knowledge" or "analytics"
         """
 
         system_prompt = """You are an intent classifier for a cooking app chat interface.
@@ -47,24 +48,18 @@ Classify the user's message into EXACTLY ONE of these categories:
    - "What's the difference between baking and roasting?"
    - "Can you explain how to make pasta?"
    - "What temperature should I cook chicken at?"
+   
+   Note: If user asks about modifying/swapping recipes, respond with a helpful message 
+   directing them to use the swap button on recipe cards, but classify as "general_knowledge".
 
-2. "plan_modification" - Requests to change, swap, or modify their meal plan or recipes
-   Examples:
-   - "Replace the chicken recipe"
-   - "Swap this with something vegetarian"
-   - "I don't like spicy food, change this recipe"
-   - "Make it easier"
-   - "Remove the taco recipe from my plan"
-   - "Add more protein-rich meals"
-
-3. "analytics" - Questions about their progress, stats, or history
+2. "analytics" - Questions about their progress, stats, or history
    Examples:
    - "How many recipes have I completed?"
    - "What's my progress this week?"
    - "Show me my cooking history"
    - "What difficulty level am I at?"
 
-Respond with ONLY ONE WORD: either "general_knowledge", "plan_modification", or "analytics"
+Respond with ONLY ONE WORD: either "general_knowledge" or "analytics"
 No explanation, no punctuation, just the classification."""
 
         user_prompt = f"User message: {user_message}"
@@ -81,7 +76,7 @@ No explanation, no punctuation, just the classification."""
             intent = response.content.strip().lower()
 
             # Validate response
-            if intent in ["general_knowledge", "plan_modification", "analytics"]:
+            if intent in ["general_knowledge", "analytics"]:
                 return intent  # type: ignore
             else:
                 # Default to general_knowledge if uncertain
