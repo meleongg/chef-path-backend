@@ -277,16 +277,14 @@ def get_recipe_candidates(intent_query: str) -> str:
                 f"[TOOL: get_recipe_candidates] Swap candidates: {state.swap_candidates[:3]}..."
             )
 
-            output_summary += f"\n🔄 SWAP MODE INSTRUCTIONS:\n"
-            output_summary += f"- Current plan has {len(state.candidate_recipes)} recipes: {state.candidate_recipes}\n"
-            output_summary += f"- Found {len(found_ids)} replacement options above\n"
+            output_summary += f"\n🔄 SWAP MODE - CHOOSE THE BEST:\n"
             output_summary += (
-                f"- Pick the BEST recipe ID from the list above (e.g., the first one)\n"
+                f"- #1 has the highest relevance score ({results[0][1]:.3f})\n"
             )
-            output_summary += f"- MANUALLY construct a new list by replacing the old recipe ID with the new one\n"
-            output_summary += (
-                f"- Then call finalize_recipe_selection with your new list\n"
-            )
+            output_summary += f"- Review all 3 options above\n"
+            output_summary += f"- Respond with ONLY the UUID of the best match\n"
+            output_summary += f"- Example: Just respond with the ID, nothing else\n"
+            output_summary += f"- The backend will handle the rest\n"
         else:
             # Normal mode: replace candidate_recipes with search results
             state.candidate_recipes = found_ids

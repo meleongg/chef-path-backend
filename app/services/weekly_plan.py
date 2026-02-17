@@ -8,10 +8,64 @@ from sqlalchemy import select
 from fastapi import HTTPException
 
 
+# Recipe Schedule Helper Functions
+def create_recipe_schedule(recipe_ids: List[str]) -> str:
+    """
+    Convert a list of recipe IDs to an ordered recipe schedule JSON string.
+
+    Args:
+        recipe_ids: List of recipe ID strings in desired order
+
+    Returns:
+        JSON string of ordered recipe schedule: [{"recipe_id": "uuid", "order": 0}, ...]
+    """
+    schedule = [{"recipe_id": rid, "order": idx} for idx, rid in enumerate(recipe_ids)]
+    return json.dumps(schedule)
+
+
+def parse_recipe_schedule(recipe_schedule_json: str) -> List[str]:
+    """
+    Parse a recipe schedule JSON string to extract ordered recipe IDs.
+
+    Args:
+        recipe_schedule_json: JSON string of recipe schedule
+
+    Returns:
+        List of recipe ID strings in order
+    """
+    schedule = json.loads(recipe_schedule_json)
+    # Sort by order field to ensure correct sequence
+    sorted_schedule = sorted(schedule, key=lambda x: x.get("order", 0))
+    return [item["recipe_id"] for item in sorted_schedule]
+
+
+def swap_recipe_in_schedule(recipe_schedule_json: str, old_id: str, new_id: str) -> str:
+    """
+    Swap a recipe in the schedule while maintaining order positions.
+
+    Args:
+        recipe_schedule_json: JSON string of recipe schedule
+        old_id: UUID of recipe to remove
+        new_id: UUID of recipe to add in its place
+
+    Returns:
+        Updated JSON string with new recipe at same position
+    """
+    schedule = json.loads(recipe_schedule_json)
+
+    # Find and replace the recipe with matching ID
+    for item in schedule:
+        if item["recipe_id"] == old_id:
+            item["recipe_id"] = new_id
+            break
+
+    return json.dumps(schedule)
+
+
 class WeeklyPlanService:
     def load_recipes_for_plan(self, plan: WeeklyPlan, db: Session) -> WeeklyPlan:
         """Load the full Recipe objects for a WeeklyPlan and attach them as a property."""
-        recipe_ids = json.loads(plan.recipe_ids)
+        recipe_ids = parse_recipe_schedule(plan.recipe_schedule)
         recipe_uuids = [uuid.UUID(rid) for rid in recipe_ids]
 
         # Query all recipes in the correct order
@@ -133,8 +187,10 @@ class WeeklyPlanService:
         Also creates UserRecipeProgress entries for each recipe in the plan.
         """
 
-        # Serialize the Recipe IDs for storage
-        recipe_ids_str = json.dumps([str(uid) for uid in recipe_ids_from_agent])
+        # Create the recipe schedule with ordered recipes
+        recipe_schedule_str = create_recipe_schedule(
+            [str(uid) for uid in recipe_ids_from_agent]
+        )
 
         existing_plan = (
             db.query(WeeklyPlan)
@@ -145,7 +201,7 @@ class WeeklyPlanService:
         )
         if existing_plan:
             # Update the existing plan's recipes with the agent's new list
-            existing_plan.recipe_ids = recipe_ids_str
+            existing_plan.recipe_schedule = recipe_schedule_str
             db.add(existing_plan)
 
             # Delete old progress entries for this week and create new ones
@@ -169,7 +225,7 @@ class WeeklyPlanService:
         new_plan = WeeklyPlan(
             user_id=user.id,
             week_number=week_number,
-            recipe_ids=recipe_ids_str,
+            recipe_schedule=recipe_schedule_str,
             generated_at=datetime.now(timezone.utc),
             is_unlocked=True,  # Auto-unlock the first plan
         )

@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from app.services.weekly_plan import create_recipe_schedule
 
 load_dotenv()
 
@@ -152,16 +153,18 @@ async def seed_database(clear_first: bool = False):
         # Mock week 1 plan for Test user using static recipes
         print(f"\n📅 Generating week 1 plan for Test user (mocked)...")
         recipe_ids = [str(recipe.id) for recipe in recipes]
+        recipe_schedule = create_recipe_schedule(recipe_ids)
+
         plan = WeeklyPlan(
             user_id=test_user.id,
             week_number=1,
-            recipe_ids=json.dumps(recipe_ids),
+            recipe_schedule=recipe_schedule,
             is_unlocked=True,
         )
         db.add(plan)
         db.commit()
         db.refresh(plan)
-        print(f"  ✅ Created week 1 plan with recipe_ids: {recipe_ids}")
+        print(f"  ✅ Created week 1 plan with recipe_schedule: {recipe_schedule}")
         # Seed UserRecipeProgress for each recipe in the weekly plan
         print(f"\n📝 Seeding UserRecipeProgress records...")
         for i, recipe in enumerate(recipes):

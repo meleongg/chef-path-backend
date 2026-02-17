@@ -2,6 +2,7 @@ import json
 import uuid
 import psycopg2
 import os
+import re
 from dotenv import load_dotenv
 from app.constants import GENERATIVE_MODEL
 from typing import Annotated, List, Dict, Any
@@ -18,7 +19,14 @@ from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
 from app.database import get_db
 from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe
-from app.services.weekly_plan import WeeklyPlanService
+from app.services.weekly_plan import (
+    WeeklyPlanService,
+    create_recipe_schedule,
+    parse_recipe_schedule,
+    swap_recipe_in_schedule,
+    validate_recipe_can_be_swapped,
+    cleanup_swapped_recipe_progress,
+)
 from app.agents.planner_agent import get_agent_with_checkpointer, PlanState
 from app.schemas import (
     WeeklyPlanResponse,
@@ -32,10 +40,6 @@ from app.schemas import (
 from app.services.intent_classifier import classify_message_intent
 from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
 from app.utils.prompt_helpers import get_goal_description, get_skill_description
-from app.services.weekly_plan import (
-    validate_recipe_can_be_swapped,
-    cleanup_swapped_recipe_progress,
-)
 
 # Load environment variables
 load_dotenv()
@@ -251,14 +255,14 @@ async def swap_recipe_endpoint(
 
         print(f"[SwapRecipe] Target week: {target_plan.week_number}")
 
-        # 3. Load current plan and parse recipe_ids
+        # 3. Load current plan and parse recipe_schedule
         try:
-            current_recipe_ids_str = json.loads(target_plan.recipe_ids)
+            current_recipe_ids_str = parse_recipe_schedule(target_plan.recipe_schedule)
             print(
                 f"[SwapRecipe] Current plan has {len(current_recipe_ids_str)} recipes"
             )
         except Exception as e:
-            print(f"[SwapRecipe] Error parsing recipe IDs: {e}")
+            print(f"[SwapRecipe] Error parsing recipe schedule: {e}")
             raise HTTPException(status_code=400, detail="Invalid plan data")
 
         # 4. Validate recipe_id_to_replace is in the plan
@@ -288,18 +292,32 @@ async def swap_recipe_endpoint(
             db=db,
         )
 
-        # 6. Get exclusion IDs
+        # 6. Build comprehensive exclusion list
+        # Include: user's poor-rated recipes + recipe being swapped + all other recipes in current plan
         exclusion_ids: List[uuid.UUID] = plan_service.get_user_exclusion_ids(
             user, db, current_week=target_plan.week_number
         )
 
-        # Add the recipe being swapped to exclusions (prevent recommending same recipe)
+        # Add ALL current plan recipes to exclusions (except the one being replaced)
+        for current_id in current_recipe_ids_str:
+            recipe_uuid = uuid.UUID(current_id)
+            if (
+                recipe_uuid != swap_request.recipe_id_to_replace
+                and recipe_uuid not in exclusion_ids
+            ):
+                exclusion_ids.append(recipe_uuid)
+                print(
+                    f"[SwapRecipe] Added current plan recipe {current_id} to exclusions"
+                )
+
+        # Add the recipe being swapped to exclusions
         if swap_request.recipe_id_to_replace not in exclusion_ids:
             exclusion_ids.append(swap_request.recipe_id_to_replace)
             print(
-                f"[SwapRecipe] Added recipe {swap_request.recipe_id_to_replace} to exclusions"
+                f"[SwapRecipe] Added recipe to swap {swap_request.recipe_id_to_replace} to exclusions"
             )
 
+        print(f"[SwapRecipe] Total exclusions: {len(exclusion_ids)} recipes")
         exclude_ids_str = uuids_to_strs(exclusion_ids)
 
         # 7. Initialize runtime context with full user preferences
@@ -338,25 +356,21 @@ async def swap_recipe_endpoint(
         print(f"  current recipes: {len(runtime_state.candidate_recipes)}")
         print("=" * 80)
 
-        # 8. Build focused agent message with explicit swap instructions
+        # 8. Build focused agent message - agent just picks ONE recipe ID
         swap_message = f"""RECIPE SWAP REQUEST:
 
-OLD RECIPE TO REPLACE:
-- ID: {recipe_id_str}
-- Name: {old_recipe.name}
+Recipe to replace: {old_recipe.name} (ID: {recipe_id_str})
+User's reason: {swap_request.swap_context}
 
-CURRENT PLAN (candidate_recipes):
-{current_recipe_ids_str}
+YOUR JOB:
+1. Search for ONE replacement recipe using get_recipe_candidates
+2. Review the search results with recipe names, difficulty, and relevance scores
+3. Pick the BEST recipe ID from the results (consider: relevance score, cuisine, difficulty)
+4. Respond with ONLY that recipe ID (nothing else)
 
-USER'S SWAP REASON: {swap_request.swap_context}
+Example response: "8a9cf1e4-1e3f-49e7-babe-01941de08134"
 
-YOUR TASK:
-1. Search for ONE replacement recipe matching the user's cuisine and swap reason
-2. Extract the new recipe ID from the search results
-3. Replace {recipe_id_str} in the current plan with the new recipe ID
-4. Call finalize_recipe_selection with the updated list (only ONE recipe changed)
-
-Keep all other recipes unchanged."""
+The backend will handle inserting it into the meal plan."""
 
         # 9. Invoke LangGraph agent
         checkpointer = request.app.state.checkpoint_saver
@@ -383,61 +397,46 @@ Keep all other recipes unchanged."""
                 },
             )
 
-        # 10. Extract updated recipe list
-        updated_recipe_ids_str: List[str] = (
-            runtime_state.candidate_recipes
-            or updated_state.get("candidate_recipes", [])
+        # 10. Extract the new recipe ID from agent's response
+        last_message = (
+            updated_state.get("messages", [])[-1]
+            if updated_state.get("messages")
+            else None
         )
+        if not last_message or not hasattr(last_message, "content"):
+            raise ValueError("Agent did not provide a response")
 
-        print(f"[SwapRecipe] Agent returned {len(updated_recipe_ids_str)} recipes")
-        print(f"[SwapRecipe] Current recipes: {current_recipe_ids_str}")
-        print(f"[SwapRecipe] Updated recipes: {updated_recipe_ids_str}")
+        agent_response = last_message.content.strip()
+        print(f"[SwapRecipe] Agent response: {agent_response}")
 
-        if not updated_recipe_ids_str:
-            raise ValueError("No recipes selected after swap")
+        # Try to extract UUID from response
+        uuid_pattern = r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"
+        matches = re.findall(uuid_pattern, agent_response, re.IGNORECASE)
 
-        # 11. Validate exactly ONE recipe changed
-        changed_recipes = set(updated_recipe_ids_str) - set(current_recipe_ids_str)
-        removed_recipes = set(current_recipe_ids_str) - set(updated_recipe_ids_str)
-
-        print(f"[SwapRecipe] Added: {changed_recipes}")
-        print(f"[SwapRecipe] Removed: {removed_recipes}")
-
-        if len(changed_recipes) != 1 or len(removed_recipes) != 1:
-            print(
-                f"[SwapRecipe] ⚠️ Unexpected swap: {len(changed_recipes)} added, {len(removed_recipes)} removed"
-            )
-            print(
-                f"[SwapRecipe] Swap candidates found: {runtime_state.swap_candidates}"
-            )
-
-            # If agent didn't swap correctly, try to recover
-            if len(changed_recipes) >= 1:
-                new_recipe_id_str = list(changed_recipes)[0]
-                print(
-                    f"[SwapRecipe] Recovering: Using first new recipe {new_recipe_id_str}"
-                )
-            elif len(runtime_state.swap_candidates) > 0:
-                # Agent found candidates but didn't use them - use the first one
+        if not matches:
+            if len(runtime_state.swap_candidates) > 0:
                 new_recipe_id_str = runtime_state.swap_candidates[0]
                 print(
-                    f"[SwapRecipe] Recovering: Using first swap candidate {new_recipe_id_str}"
-                )
-                # Manually construct the correct swap
-                updated_recipe_ids_str = [
-                    new_recipe_id_str if rid == recipe_id_str else rid
-                    for rid in current_recipe_ids_str
-                ]
-                print(
-                    f"[SwapRecipe] Manually constructed swap: {updated_recipe_ids_str}"
+                    f"[SwapRecipe] Could not parse UUID, using first candidate: {new_recipe_id_str}"
                 )
             else:
-                error_msg = f"Agent did not provide a replacement recipe. Added: {len(changed_recipes)}, Removed: {len(removed_recipes)}"
-                raise ValueError(error_msg)
+                raise ValueError(
+                    f"Could not extract recipe ID from agent response: {agent_response}"
+                )
         else:
-            new_recipe_id_str = list(changed_recipes)[0]
+            new_recipe_id_str = matches[0]
+            print(f"[SwapRecipe] Extracted recipe ID: {new_recipe_id_str}")
 
-        print(f"[SwapRecipe] New recipe ID: {new_recipe_id_str}")
+        # 11. Backend performs deterministic swap
+        try:
+            # Use helper function to swap recipe in schedule while maintaining order
+            updated_schedule_json = swap_recipe_in_schedule(
+                target_plan.recipe_schedule, recipe_id_str, new_recipe_id_str
+            )
+            print(f"[SwapRecipe] Swapped {recipe_id_str} → {new_recipe_id_str}")
+            print(f"[SwapRecipe] Updated schedule: {updated_schedule_json}")
+        except ValueError:
+            raise ValueError(f"Recipe {recipe_id_str} not found in current plan")
 
         # Get new recipe details
         new_recipe = (
@@ -448,13 +447,21 @@ Keep all other recipes unchanged."""
                 status_code=500, detail="New recipe not found in database"
             )
 
-        # 12. Update WeeklyPlan.recipe_ids
-        target_plan.recipe_ids = json.dumps(updated_recipe_ids_str)
-        db.commit()
-        db.refresh(target_plan)
+        # 12. Update WeeklyPlan.recipe_schedule in database
+        try:
+            target_plan.recipe_schedule = updated_schedule_json
+            db.commit()
+            db.refresh(target_plan)
+            print(f"[SwapRecipe] ✅ Database updated successfully")
+            print(f"[SwapRecipe] Saved to Supabase: {updated_schedule_json}")
+        except Exception as e:
+            db.rollback()
+            print(f"[SwapRecipe] ❌ Database update failed: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to save swap to database: {str(e)}"
+            )
 
-        print(f"[SwapRecipe] ✅ Plan updated successfully")
-        print(f"[SwapRecipe] Swapped: {old_recipe.name} → {new_recipe.name}")
+        print(f"[SwapRecipe] ✅ Swap completed: {old_recipe.name} → {new_recipe.name}")
 
         # 13. Delete old UserRecipeProgress entry
         cleanup_swapped_recipe_progress(

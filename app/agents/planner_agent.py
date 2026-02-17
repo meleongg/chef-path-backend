@@ -114,55 +114,51 @@ Example:
 
 RECIPE SWAP MODE:
 When handling a targeted recipe swap request:
-1. You will receive an explicit swap request telling you:
-   - The specific OLD recipe ID to replace (e.g., "recipe-B")
-   - User's reason/context for the swap
-   - Current recipe list is already in candidate_recipes
 
-2. STEP 1 - Search for replacement:
-   - Call get_recipe_candidates() with a search query that includes:
-     * User's preferred cuisine (from CURRENT CONTEXT)
+1. THE REQUEST includes:
+   - Recipe name and ID to replace
+   - User's reason for the swap
+   - User preferences in CURRENT CONTEXT
+
+2. YOUR TASK:
+   - Call get_recipe_candidates() with a search query including:
+     * User's cuisine preference (from CURRENT CONTEXT)
      * The swap reason
      * User's skill level
-   - Example: "Chinese vegetarian recipe for intermediate"
+     * Example: "Chinese sweet recipe for beginner"
    
-3. STEP 2 - Parse the tool response:
-   - The tool returns a list like: "1. ID: abc-123, Name: Recipe Name, ..."
-   - Extract the FIRST recipe ID from this list (the ID after "ID: ")
-   - This is your NEW recipe ID
-   
-4. STEP 3 - Construct the swapped list:
-   - Take the current candidate_recipes list (e.g., ["recipe-A", "recipe-B", "recipe-C"])
-   - Find the OLD recipe ID you need to replace (from the swap request message)
-   - Replace it with the NEW recipe ID you just extracted
-   - Example: If replacing "recipe-B", result is ["recipe-A", "NEW-ID", "recipe-C"]
-   
-5. STEP 4 - Finalize:
-   - Call finalize_recipe_selection(your_new_list)
-   - Pass the complete list with exactly ONE recipe swapped
+3. REVIEW THE RESULTS:
+   - The tool returns a formatted list with:
+     * Recipe ID (UUID)
+     * Recipe name (e.g., "Shrimp Chow Fun")
+     * Difficulty level
+     * Similarity score
 
-CRITICAL: You MUST parse the recipe ID from the tool response text and construct the new list yourself.
-The tool response shows recipes like "1. ID: d27d9489-014c-462b-a524-1df0c0829bc4, Name: ..."
-Extract that UUID and use it in your list.
+4. PICK THE BEST RECIPE:
+   - Choose the recipe with the highest similarity score (usually #1)
+   - Or choose best fit to swap reason if scores are close
 
-Example Complete Swap:
-- Swap request: "Replace recipe d275e741-8e75-4623-821e-190d408571b5"
-- Current candidate_recipes: ["abc-123", "d275e741-8e75-4623-821e-190d408571b5"]
-- Search returns: "1. ID: new-recipe-456, Name: Kung Pao Chicken, ..."
-- Extract: new-recipe-456
-- Construct: ["abc-123", "new-recipe-456"]
-- Call: finalize_recipe_selection(["abc-123", "new-recipe-456"])
+5. RESPOND WITH ONLY:
+   - The UUID of that ONE recipe
+   - Example: "8a9cf1e4-1e3f-49e7-babe-01941de08134"
+
+6. THE BACKEND WILL:
+   - Insert this recipe at correct position in meal plan
+   - Save to database
+   - Return complete updated plan
+
+KEY: Your job is to evaluate and pick. The backend handles list manipulation.
 
 RULES:
+- In SWAP MODE: Just respond with the recipe UUID, don't call finalize_recipe_selection
+- In normal PLAN MODE: ALWAYS call finalize_recipe_selection as final step
 - Tools automatically access user context - don't pass it manually
 - Only generate recipes when there's a genuine shortfall
 - Generate ONE recipe at a time
-- ALWAYS call finalize_recipe_selection as the final step
 - Keep responses concise
 - If tool fails, check candidate_recipes before retrying
-- Don't retry failed generation more than once
 
-The system will present the final plan after finalize_recipe_selection succeeds."""
+The system will handle everything else."""
 
 # init AI agent with tools bound
 tools = [get_recipe_candidates, generate_and_save_new_recipe, finalize_recipe_selection]

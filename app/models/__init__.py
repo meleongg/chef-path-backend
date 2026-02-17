@@ -94,7 +94,9 @@ class WeeklyPlan(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     week_number = Column(Integer, nullable=False)  # week of the course (1-N)
-    recipe_ids = Column(Text, nullable=False)  # JSON string of recipe IDs
+    recipe_schedule = Column(
+        Text, nullable=False
+    )  # JSON string of ordered recipes: [{"recipe_id": "uuid", "order": 0}, ...]
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_unlocked = Column(Boolean, default=False)
 

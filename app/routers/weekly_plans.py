@@ -7,7 +7,7 @@ from app.database import get_db
 from app.utils.auth import get_current_user
 from app.models import User, Recipe, WeeklyPlan
 from app.schemas import WeeklyPlanResponse, RecipeResponse
-from app.services.weekly_plan import WeeklyPlanService
+from app.services.weekly_plan import WeeklyPlanService, parse_recipe_schedule
 
 router = APIRouter()
 plan_service = WeeklyPlanService()
@@ -42,7 +42,7 @@ async def get_weekly_plan(
         )
 
     # Get recipe details
-    recipe_ids = json.loads(getattr(plan, "recipe_ids"))
+    recipe_ids = parse_recipe_schedule(getattr(plan, "recipe_schedule"))
     recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
 
     # Create response with recipes
@@ -70,7 +70,7 @@ async def get_all_weekly_plans(
     # Add recipe details to each plan
     response_plans = []
     for plan in plans:
-        recipe_ids = json.loads(getattr(plan, "recipe_ids"))
+        recipe_ids = parse_recipe_schedule(getattr(plan, "recipe_schedule"))
         recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
 
         plan_response = WeeklyPlanResponse.model_validate(plan)
