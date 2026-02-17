@@ -47,6 +47,7 @@ class User(Base):
     # Relationships
     weekly_plans = relationship("WeeklyPlan", back_populates="user")
     recipe_progress = relationship("UserRecipeProgress", back_populates="user")
+    recipe_suggestions = relationship("RecipeSuggestion", back_populates="user")
 
 
 class Recipe(Base):
@@ -65,6 +66,7 @@ class Recipe(Base):
 
     # Relationships
     recipe_progress = relationship("UserRecipeProgress", back_populates="recipe")
+    recipe_suggestions = relationship("RecipeSuggestion", back_populates="recipe")
 
     # AI fields
     content_text = Column(TEXT, nullable=True)  # Full text for embedding
@@ -98,9 +100,6 @@ class WeeklyPlan(Base):
         Text, nullable=False
     )  # JSON string of ordered recipes: [{"recipe_id": "uuid", "order": 0}, ...]
     swap_count = Column(Integer, default=0)  # Number of swaps used this week (max 3)
-    excluded_recipe_ids = Column(
-        Text, default="[]"
-    )  # JSON array of recipe IDs swapped out this week
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_unlocked = Column(Boolean, default=False)
 
@@ -126,3 +125,18 @@ class UserRecipeProgress(Base):
     # Enhanced feedback for AI
     satisfaction_rating = Column(Integer, nullable=True)  # 1-5 rating
     difficulty_rating = Column(Integer, nullable=True)  # 1-5 rating
+
+
+class RecipeSuggestion(Base):
+    __tablename__ = "recipe_suggestions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    recipe_id = Column(UUID(as_uuid=True), ForeignKey("recipes.id"), nullable=False)
+    week_number = Column(Integer, nullable=False)
+    source = Column(String(20), nullable=False)  # plan, swap_in, swap_out
+    suggested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    user = relationship("User", back_populates="recipe_suggestions")
+    recipe = relationship("Recipe", back_populates="recipe_suggestions")

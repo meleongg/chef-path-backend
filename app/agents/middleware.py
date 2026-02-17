@@ -106,7 +106,7 @@ def create_context_message(state: Dict[str, Any]) -> SystemMessage:
 - user_id: {user_id}
 - user_goal: {user_goal}
 - frequency: {frequency} meals
-- exclude_ids: {len(exclude_ids)} recipes excluded (difficult + recently completed)
+- exclude_ids: {len(exclude_ids)} recipes excluded (cooldown + difficulty)
 
 USER PREFERENCES (MUST RESPECT):
 - Preferred Cuisine: {cuisine}

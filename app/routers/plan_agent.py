@@ -327,20 +327,6 @@ async def swap_recipe_endpoint(
                 f"[SwapRecipe] Added recipe to swap {swap_request.recipe_id_to_replace} to exclusions"
             )
 
-        # Add recipes previously swapped out this week to exclusions
-        excluded_json = getattr(target_plan, "excluded_recipe_ids", "[]")
-        try:
-            excluded_from_swaps = json.loads(excluded_json)
-            for excluded_recipe_id in excluded_from_swaps:
-                recipe_uuid = uuid.UUID(excluded_recipe_id)
-                if recipe_uuid not in exclusion_ids:
-                    exclusion_ids.append(recipe_uuid)
-                    print(
-                        f"[SwapRecipe] Added previously swapped recipe {excluded_recipe_id} to exclusions"
-                    )
-        except (json.JSONDecodeError, ValueError):
-            print("[SwapRecipe] Warning: Could not parse excluded_recipe_ids, skipping")
-
         print(f"[SwapRecipe] Total exclusions: {len(exclusion_ids)} recipes")
         exclude_ids_str = uuids_to_strs(exclusion_ids)
 
@@ -475,17 +461,21 @@ The backend will handle inserting it into the meal plan."""
         try:
             target_plan.recipe_schedule = updated_schedule_json
 
-            # Track the swapped-out recipe in excluded_recipe_ids
-            excluded_list = json.loads(
-                getattr(target_plan, "excluded_recipe_ids", "[]") or "[]"
+            # Record swap suggestions for cooldown tracking
+            plan_service.record_recipe_suggestions(
+                user_id=user.id,
+                week_number=target_plan.week_number,
+                recipe_ids=[swap_request.recipe_id_to_replace],
+                source="swap_out",
+                db=db,
             )
-            recipe_id_str_for_exclusion = str(swap_request.recipe_id_to_replace)
-            if recipe_id_str_for_exclusion not in excluded_list:
-                excluded_list.append(recipe_id_str_for_exclusion)
-                target_plan.excluded_recipe_ids = json.dumps(excluded_list)
-                print(
-                    f"[SwapRecipe] Added {recipe_id_str_for_exclusion} to excluded_recipe_ids"
-                )
+            plan_service.record_recipe_suggestions(
+                user_id=user.id,
+                week_number=target_plan.week_number,
+                recipe_ids=[uuid.UUID(new_recipe_id_str)],
+                source="swap_in",
+                db=db,
+            )
 
             # Increment swap count for this week
             target_plan.swap_count = current_swap_count + 1

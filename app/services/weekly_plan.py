@@ -2,10 +2,11 @@ import uuid
 import json
 from typing import List
 from sqlalchemy.orm import Session
-from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe
-from datetime import datetime, timezone
+from app.models import User, WeeklyPlan, UserRecipeProgress, Recipe, RecipeSuggestion
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from fastapi import HTTPException
+from app.constants import RECIPE_COOLDOWN_DAYS
 
 
 # Recipe Schedule Helper Functions
@@ -88,8 +89,7 @@ class WeeklyPlanService:
         Fetches all recipe IDs to exclude from the next plan.
         Includes:
         1. Recipes rated as too difficult (difficulty_rating >= 4)
-        2. Recently completed recipes from the last 2 weeks (for variety)
-        3. Recipes swapped out from the previous week (to prevent recycling)
+        2. Recipes suggested within the cooldown window (plan + swap)
         """
         exclusion_ids = []
 
@@ -101,39 +101,16 @@ class WeeklyPlanService:
         ).all()
         exclusion_ids.extend(hard_recipes)
 
-        if current_week is not None and current_week > 1:
-            recent_weeks_to_exclude = 2
-            min_week = max(1, current_week - recent_weeks_to_exclude + 1)
-
-            recent_recipes = db.scalars(
-                select(UserRecipeProgress.recipe_id).filter(
-                    (UserRecipeProgress.user_id == user.id)
-                    & (UserRecipeProgress.week_number >= min_week)
-                    & (UserRecipeProgress.week_number < current_week)
-                )
-            ).all()
-            exclusion_ids.extend(recent_recipes)
-
-            # Add recipes swapped out from the previous week
-            # This prevents the agent from suggesting recipes the user already swapped out
-            previous_week = current_week - 1
-            previous_plan = (
-                db.query(WeeklyPlan)
-                .filter(
-                    (WeeklyPlan.user_id == user.id)
-                    & (WeeklyPlan.week_number == previous_week)
-                )
-                .first()
+        cooldown_cutoff = datetime.now(timezone.utc) - timedelta(
+            days=RECIPE_COOLDOWN_DAYS
+        )
+        recent_suggestions = db.scalars(
+            select(RecipeSuggestion.recipe_id).filter(
+                (RecipeSuggestion.user_id == user.id)
+                & (RecipeSuggestion.suggested_at >= cooldown_cutoff)
             )
-
-            if previous_plan:
-                excluded_json = getattr(previous_plan, "excluded_recipe_ids", "[]")
-                try:
-                    excluded_from_swaps = json.loads(excluded_json)
-                    for excluded_recipe_id in excluded_from_swaps:
-                        exclusion_ids.append(uuid.UUID(excluded_recipe_id))
-                except (json.JSONDecodeError, ValueError):
-                    pass  # Silently skip if malformed
+        ).all()
+        exclusion_ids.extend(recent_suggestions)
 
         # Remove duplicates and return
         return list(set(exclusion_ids))
@@ -158,6 +135,32 @@ class WeeklyPlanService:
                 completed_at=None,
             )
             db.add(progress_entry)
+
+    def record_recipe_suggestions(
+        self,
+        user_id: uuid.UUID,
+        week_number: int,
+        recipe_ids: List[uuid.UUID],
+        source: str,
+        db: Session,
+        clear_existing: bool = False,
+    ) -> None:
+        if clear_existing:
+            db.query(RecipeSuggestion).filter(
+                RecipeSuggestion.user_id == user_id,
+                RecipeSuggestion.week_number == week_number,
+                RecipeSuggestion.source == source,
+            ).delete(synchronize_session=False)
+
+        for recipe_id in recipe_ids:
+            suggestion = RecipeSuggestion(
+                user_id=user_id,
+                recipe_id=recipe_id,
+                week_number=week_number,
+                source=source,
+                suggested_at=datetime.now(timezone.utc),
+            )
+            db.add(suggestion)
 
     def get_current_week(self, user: User, db: Session) -> int:
         """Get the current week number for the user based on their progress"""
@@ -237,6 +240,16 @@ class WeeklyPlanService:
                 user.id, week_number, recipe_ids_from_agent, db
             )
 
+            # Record suggestions for cooldown tracking
+            self.record_recipe_suggestions(
+                user_id=user.id,
+                week_number=week_number,
+                recipe_ids=recipe_ids_from_agent,
+                source="plan",
+                db=db,
+                clear_existing=True,
+            )
+
             db.commit()
             db.refresh(existing_plan)
 
@@ -258,6 +271,15 @@ class WeeklyPlanService:
 
         # Create progress entries for each recipe
         self._create_progress_entries(user.id, week_number, recipe_ids_from_agent, db)
+
+        # Record suggestions for cooldown tracking
+        self.record_recipe_suggestions(
+            user_id=user.id,
+            week_number=week_number,
+            recipe_ids=recipe_ids_from_agent,
+            source="plan",
+            db=db,
+        )
 
         # Commit everything
         db.commit()

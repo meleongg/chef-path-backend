@@ -153,6 +153,7 @@ RULES:
 - In SWAP MODE: Just respond with the recipe UUID, don't call finalize_recipe_selection
 - In normal PLAN MODE: ALWAYS call finalize_recipe_selection as final step
 - Tools automatically access user context - don't pass it manually
+- Never select recipes in exclude_ids; this list includes a 14-day cooldown (plan + swap)
 - Only generate recipes when there's a genuine shortfall
 - Generate ONE recipe at a time
 - Keep responses concise

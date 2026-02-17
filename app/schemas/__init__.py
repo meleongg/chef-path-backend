@@ -168,7 +168,6 @@ class WeeklyPlanResponse(BaseModel):
     is_unlocked: bool
     recipes: List[RecipeResponse] = []
     swap_count: int = 0
-    excluded_recipe_ids: str = "[]"
 
     model_config = {"from_attributes": True}
 
