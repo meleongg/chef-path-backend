@@ -117,10 +117,14 @@ class WeeklyPlanService:
             # Add recipes swapped out from the previous week
             # This prevents the agent from suggesting recipes the user already swapped out
             previous_week = current_week - 1
-            previous_plan = db.query(WeeklyPlan).filter(
-                (WeeklyPlan.user_id == user.id)
-                & (WeeklyPlan.week_number == previous_week)
-            ).first()
+            previous_plan = (
+                db.query(WeeklyPlan)
+                .filter(
+                    (WeeklyPlan.user_id == user.id)
+                    & (WeeklyPlan.week_number == previous_week)
+                )
+                .first()
+            )
 
             if previous_plan:
                 excluded_json = getattr(previous_plan, "excluded_recipe_ids", "[]")

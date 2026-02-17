@@ -80,16 +80,48 @@ async def get_progress_path(
 
 
 @router.get(
-    "/progress/{user_id}/week/{week_number}",
+    "/progress/{user_id}/week",
     response_model=List[UserRecipeProgressResponse],
 )
 async def get_weekly_progress(
+    user_id: UUID,
+    week_number: int = Query(
+        None, description="Specific week number (optional, defaults to most recent)"
+    ),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Get all recipe progress for a user in a specific week.
+    Defaults to most recent week when week_number is not provided.
+    """
+    return _fetch_weekly_progress(user_id, week_number, db)
+
+
+@router.get(
+    "/progress/{user_id}/week/{week_number}",
+    response_model=List[UserRecipeProgressResponse],
+)
+async def get_weekly_progress_by_week(
     user_id: UUID,
     week_number: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get all recipe progress for a user in a specific week"""
+    """Get all recipe progress for a user in a specific week."""
+    return _fetch_weekly_progress(user_id, week_number, db)
+
+
+def _fetch_weekly_progress(
+    user_id: UUID, week_number: int, db: Session
+) -> List[UserRecipeProgress]:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # If no week specified, use the most recent week with data
+    if week_number is None:
+        week_number = plan_service.get_current_week(user, db)
 
     progress_records = (
         db.query(UserRecipeProgress)
