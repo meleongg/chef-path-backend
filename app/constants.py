@@ -35,3 +35,6 @@ SKILL_LEVEL_DESCRIPTIONS = {
 CUISINE_OPTIONS = ["Italian", "Chinese", "Mexican", "American"]
 
 THEMEALDB_BASE_URL = "https://www.themealdb.com/api/json/v1/1"
+
+# Recipe swap configuration
+MAX_SWAPS_PER_WEEK = 3

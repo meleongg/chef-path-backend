@@ -97,6 +97,10 @@ class WeeklyPlan(Base):
     recipe_schedule = Column(
         Text, nullable=False
     )  # JSON string of ordered recipes: [{"recipe_id": "uuid", "order": 0}, ...]
+    swap_count = Column(Integer, default=0)  # Number of swaps used this week (max 3)
+    excluded_recipe_ids = Column(
+        Text, default="[]"
+    )  # JSON array of recipe IDs swapped out this week
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     is_unlocked = Column(Boolean, default=False)
 

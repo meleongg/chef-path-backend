@@ -4,7 +4,7 @@ import psycopg2
 import os
 import re
 from dotenv import load_dotenv
-from app.constants import GENERATIVE_MODEL
+from app.constants import GENERATIVE_MODEL, MAX_SWAPS_PER_WEEK
 from typing import Annotated, List, Dict, Any
 from fastapi import APIRouter, Depends, Body, HTTPException, status, Request
 from app.agents.runtime_context import (
@@ -255,6 +255,16 @@ async def swap_recipe_endpoint(
 
         print(f"[SwapRecipe] Target week: {target_plan.week_number}")
 
+        # 2a. Check swap limit
+        current_swap_count = getattr(target_plan, "swap_count", 0)
+        if current_swap_count >= MAX_SWAPS_PER_WEEK:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Swap limit reached for this week ({MAX_SWAPS_PER_WEEK} swaps max). Come back next week!",
+            )
+
+        print(f"[SwapRecipe] Swaps used: {current_swap_count}/{MAX_SWAPS_PER_WEEK}")
+
         # 3. Load current plan and parse recipe_schedule
         try:
             current_recipe_ids_str = parse_recipe_schedule(target_plan.recipe_schedule)
@@ -316,6 +326,20 @@ async def swap_recipe_endpoint(
             print(
                 f"[SwapRecipe] Added recipe to swap {swap_request.recipe_id_to_replace} to exclusions"
             )
+
+        # Add recipes previously swapped out this week to exclusions
+        excluded_json = getattr(target_plan, "excluded_recipe_ids", "[]")
+        try:
+            excluded_from_swaps = json.loads(excluded_json)
+            for excluded_recipe_id in excluded_from_swaps:
+                recipe_uuid = uuid.UUID(excluded_recipe_id)
+                if recipe_uuid not in exclusion_ids:
+                    exclusion_ids.append(recipe_uuid)
+                    print(
+                        f"[SwapRecipe] Added previously swapped recipe {excluded_recipe_id} to exclusions"
+                    )
+        except (json.JSONDecodeError, ValueError):
+            print("[SwapRecipe] Warning: Could not parse excluded_recipe_ids, skipping")
 
         print(f"[SwapRecipe] Total exclusions: {len(exclusion_ids)} recipes")
         exclude_ids_str = uuids_to_strs(exclusion_ids)
@@ -450,6 +474,23 @@ The backend will handle inserting it into the meal plan."""
         # 12. Update WeeklyPlan.recipe_schedule in database
         try:
             target_plan.recipe_schedule = updated_schedule_json
+
+            # Track the swapped-out recipe in excluded_recipe_ids
+            excluded_list = json.loads(
+                getattr(target_plan, "excluded_recipe_ids", "[]") or "[]"
+            )
+            recipe_id_str_for_exclusion = str(swap_request.recipe_id_to_replace)
+            if recipe_id_str_for_exclusion not in excluded_list:
+                excluded_list.append(recipe_id_str_for_exclusion)
+                target_plan.excluded_recipe_ids = json.dumps(excluded_list)
+                print(
+                    f"[SwapRecipe] Added {recipe_id_str_for_exclusion} to excluded_recipe_ids"
+                )
+
+            # Increment swap count for this week
+            target_plan.swap_count = current_swap_count + 1
+            print(f"[SwapRecipe] Incremented swap_count to {target_plan.swap_count}")
+
             db.commit()
             db.refresh(target_plan)
             print(f"[SwapRecipe] ✅ Database updated successfully")
