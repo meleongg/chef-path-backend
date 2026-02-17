@@ -89,6 +89,7 @@ class WeeklyPlanService:
         Includes:
         1. Recipes rated as too difficult (difficulty_rating >= 4)
         2. Recently completed recipes from the last 2 weeks (for variety)
+        3. Recipes swapped out from the previous week (to prevent recycling)
         """
         exclusion_ids = []
 
@@ -112,6 +113,23 @@ class WeeklyPlanService:
                 )
             ).all()
             exclusion_ids.extend(recent_recipes)
+
+            # Add recipes swapped out from the previous week
+            # This prevents the agent from suggesting recipes the user already swapped out
+            previous_week = current_week - 1
+            previous_plan = db.query(WeeklyPlan).filter(
+                (WeeklyPlan.user_id == user.id)
+                & (WeeklyPlan.week_number == previous_week)
+            ).first()
+
+            if previous_plan:
+                excluded_json = getattr(previous_plan, "excluded_recipe_ids", "[]")
+                try:
+                    excluded_from_swaps = json.loads(excluded_json)
+                    for excluded_recipe_id in excluded_from_swaps:
+                        exclusion_ids.append(uuid.UUID(excluded_recipe_id))
+                except (json.JSONDecodeError, ValueError):
+                    pass  # Silently skip if malformed
 
         # Remove duplicates and return
         return list(set(exclusion_ids))
