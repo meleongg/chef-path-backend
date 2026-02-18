@@ -2,9 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Bool
 from sqlalchemy.dialects.postgresql import UUID, TEXT
 from pgvector.sqlalchemy import Vector
 import uuid
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime, timezone
-from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
 

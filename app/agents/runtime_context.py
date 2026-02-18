@@ -13,7 +13,7 @@ Benefits:
 import uuid
 from typing import List, Optional
 from contextvars import ContextVar
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class PlannerContext(BaseModel):
@@ -31,8 +31,7 @@ class PlannerContext(BaseModel):
     max_prep_time_minutes: Optional[int] = None
     max_cook_time_minutes: Optional[int] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class PlannerRuntimeState(BaseModel):

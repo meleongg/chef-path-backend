@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import json
 from typing import List
 from uuid import UUID
+import uuid
 from app.database import get_db
 from app.utils.auth import get_current_user
 from app.models import User, Recipe, WeeklyPlan
@@ -31,8 +32,20 @@ async def get_weekly_plan(
     if week_number is None:
         week_number = plan_service.get_current_week(user, db)
 
-    # Get or generate weekly plan
-    plan = await plan_service.generate_weekly_plan(user, week_number, db)
+    # Get weekly plan
+    plan = (
+        db.query(WeeklyPlan)
+        .filter(
+            WeeklyPlan.user_id == user.id,
+            WeeklyPlan.week_number == week_number,
+        )
+        .first()
+    )
+
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Weekly plan not found"
+        )
 
     # Check if week is unlocked
     if not getattr(plan, "is_unlocked"):
@@ -43,7 +56,8 @@ async def get_weekly_plan(
 
     # Get recipe details
     recipe_ids = parse_recipe_schedule(getattr(plan, "recipe_schedule"))
-    recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
+    recipe_uuids = [uuid.UUID(rid) for rid in recipe_ids]
+    recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_uuids)).all()
 
     # Create response with recipes
     plan_response = WeeklyPlanResponse.model_validate(plan)
@@ -71,7 +85,8 @@ async def get_all_weekly_plans(
     response_plans = []
     for plan in plans:
         recipe_ids = parse_recipe_schedule(getattr(plan, "recipe_schedule"))
-        recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all()
+        recipe_uuids = [uuid.UUID(rid) for rid in recipe_ids]
+        recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_uuids)).all()
 
         plan_response = WeeklyPlanResponse.model_validate(plan)
         plan_response.recipes = [

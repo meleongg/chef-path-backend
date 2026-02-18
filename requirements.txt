@@ -13,3 +13,9 @@ openai
 langchain-openai
 langgraph-checkpoint-postgres
 langchain-postgres
+pytest
+pytest-asyncio
+python-jose[cryptography]
+passlib[bcrypt]
+langsmith
+langgraph
