@@ -7,6 +7,8 @@ from app.database import create_tables
 from app.routers import users, recipes, weekly_plans, feedback, auth, plan_agent
 from app.agents.checkpoint_setup import initialize_postgres_saver
 from app.core.rate_limit import limiter
+from app.database import engine
+from sqlalchemy import text
 
 
 @asynccontextmanager
@@ -59,3 +61,26 @@ app.include_router(plan_agent.router, prefix="/plan", tags=["plan generation"])
 @app.get("/")
 async def root():
     return {"message": "ChefPath Backend API is running!"}
+
+
+@app.get("/health")
+def health_check():
+    """
+    Health check endpoint for Railway.
+
+    Railway uses this to verify the service is responsive.
+    If this endpoint fails, Railway will restart the service.
+    """
+    try:
+        # Verify database connection is alive
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+
+        return {"status": "ok", "service": "chefpath-backend", "database": "connected"}
+    except Exception as e:
+        return {
+            "status": "degraded",
+            "service": "chefpath-backend",
+            "database": "disconnected",
+            "error": str(e),
+        }
