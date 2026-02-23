@@ -40,6 +40,7 @@ from app.schemas import (
 from app.services.intent_classifier import classify_message_intent
 from app.utils.uuid_helpers import uuids_to_strs, strs_to_uuids
 from app.utils.prompt_helpers import get_goal_description, get_skill_description
+from app.core.rate_limit import limiter
 
 # Load environment variables
 load_dotenv()
@@ -123,8 +124,11 @@ def cleanup_user_checkpoints(user_id: uuid.UUID):
 
 
 @router.post("/general/{user_id}", response_model=Dict[str, str])
+@limiter.limit("5/minute")
 async def casual_chat_endpoint(
-    user_id: uuid.UUID, chat_input: GeneralChatInput = Body(...)
+    request: Request,
+    user_id: uuid.UUID,
+    chat_input: GeneralChatInput = Body(...),
 ):
     """
     Handles general knowledge questions using a low-cost LLM (Stateless).
@@ -142,7 +146,9 @@ async def casual_chat_endpoint(
 
 
 @router.post("/adaptive_chat/{user_id}", response_model=AdaptiveChatResponse)
+@limiter.limit("5/minute")
 async def adaptive_chat_endpoint(
+    request: Request,
     user_id: uuid.UUID,
     chat_input: GeneralChatInput = Body(...),
     db: Session = Depends(get_db),
@@ -622,9 +628,9 @@ async def generate_user_plan_endpoint(
         print("Final state:", final_state)
 
         # Sync final state from runtime (runtime state is source of truth)
-        final_recipe_ids_str: List[str] = (
-            runtime_state.candidate_recipes or final_state.get("candidate_recipes", [])
-        )
+        final_recipe_ids_str: List[
+            str
+        ] = runtime_state.candidate_recipes or final_state.get("candidate_recipes", [])
 
         print("=" * 80)
         print("[PHASE 1: RUNTIME STATE SUMMARY]")

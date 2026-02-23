@@ -1,4 +1,13 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, TypeDecorator
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Text,
+    ForeignKey,
+    Boolean,
+    TypeDecorator,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TEXT
 from pgvector.sqlalchemy import Vector
 import uuid
@@ -10,14 +19,15 @@ Base = declarative_base()
 
 class GUID(TypeDecorator):
     """Platform-independent GUID type.
-    
+
     Uses PostgreSQL's UUID type when available, otherwise uses String(36).
     """
+
     impl = String
     cache_ok = True
 
     def load_dialect_impl(self, dialect):
-        if dialect.name == 'postgresql':
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(PG_UUID(as_uuid=True))
         else:
             return dialect.type_descriptor(String(36))
@@ -25,7 +35,7 @@ class GUID(TypeDecorator):
     def process_bind_param(self, value, dialect):
         if value is None:
             return value
-        elif dialect.name == 'postgresql':
+        elif dialect.name == "postgresql":
             return value
         else:
             return str(value)
@@ -33,7 +43,7 @@ class GUID(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return value
-        elif dialect.name == 'postgresql':
+        elif dialect.name == "postgresql":
             return value
         else:
             return uuid.UUID(value)

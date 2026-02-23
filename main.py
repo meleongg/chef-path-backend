@@ -1,9 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.database import create_tables
 from app.routers import users, recipes, weekly_plans, feedback, auth, plan_agent
 from app.agents.checkpoint_setup import initialize_postgres_saver
+from app.core.rate_limit import limiter
 
 
 @asynccontextmanager
@@ -29,6 +32,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ChefPath Backend", version="1.0.0", lifespan=lifespan)
+
+# Configure rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS
 app.add_middleware(

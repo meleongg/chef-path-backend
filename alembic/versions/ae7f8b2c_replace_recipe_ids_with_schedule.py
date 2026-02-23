@@ -28,7 +28,8 @@ def upgrade() -> None:
 
     # Migrate existing data: convert recipe_ids JSON array to recipe_schedule with order
     # Preserve original array order using WITH ORDINALITY (not alphabetically sorted)
-    op.execute("""
+    op.execute(
+        """
         UPDATE weekly_plans 
         SET recipe_schedule = COALESCE(
             (SELECT json_agg(
@@ -38,7 +39,8 @@ def upgrade() -> None:
             FROM jsonb_array_elements(recipe_ids::jsonb) WITH ORDINALITY as t(elem, ordinality)),
             '[]'::json
         )
-    """)
+    """
+    )
 
     # Drop the old column
     op.drop_column("weekly_plans", "recipe_ids")
@@ -52,13 +54,15 @@ def downgrade() -> None:
     )
 
     # Migrate data back: extract recipe_ids in order from recipe_schedule
-    op.execute("""
+    op.execute(
+        """
         UPDATE weekly_plans 
         SET recipe_ids = COALESCE(
             (SELECT json_agg(rec->>'recipe_id' ORDER BY (rec->>'order')::int)
             FROM jsonb_array_elements(recipe_schedule::jsonb) as rec),
             '[]'::json
         )
-    """)
+    """
+    )
 
     op.drop_column("weekly_plans", "recipe_schedule")
