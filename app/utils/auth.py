@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, Response, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
@@ -9,10 +9,6 @@ from app.constants import (
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
-    REFRESH_TOKEN_COOKIE_NAME,
-    REFRESH_TOKEN_COOKIE_PATH,
-    REFRESH_TOKEN_COOKIE_SAMESITE,
-    REFRESH_TOKEN_COOKIE_SECURE,
 )
 from sqlalchemy.orm import Session
 
@@ -54,24 +50,6 @@ def decode_token(token: str, expected_type: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type"
         )
     return payload
-
-
-def set_refresh_cookie(response: Response, refresh_token: str) -> None:
-    response.set_cookie(
-        key=REFRESH_TOKEN_COOKIE_NAME,
-        value=refresh_token,
-        httponly=True,
-        samesite=REFRESH_TOKEN_COOKIE_SAMESITE,
-        secure=REFRESH_TOKEN_COOKIE_SECURE,
-        path=REFRESH_TOKEN_COOKIE_PATH,
-        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-    )
-
-
-def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(
-        key=REFRESH_TOKEN_COOKIE_NAME, path=REFRESH_TOKEN_COOKIE_PATH
-    )
 
 
 async def get_current_user(

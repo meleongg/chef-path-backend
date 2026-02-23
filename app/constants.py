@@ -1,5 +1,4 @@
 # Embedding and vectorization configuration for ChefPath
-import os
 
 GENERATIVE_MODEL = "gpt-4o-mini"
 
@@ -11,29 +10,6 @@ SECRET_KEY = "your-secret-key"  # Replace with a secure key in production
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 REFRESH_TOKEN_EXPIRE_DAYS = 14
-REFRESH_TOKEN_COOKIE_NAME = "chefpath_refresh"
-REFRESH_TOKEN_COOKIE_PATH = "/"
-
-# Cookie security settings - adapt based on environment
-# In production (Railway): use Secure=True and SameSite=None for cross-site cookies
-# In development (localhost): use Secure=False and SameSite=Lax
-IS_PRODUCTION = (
-    os.getenv("ENVIRONMENT", "").lower() == "production"
-    or os.getenv("RAILWAY_ENVIRONMENT") is not None
-)
-
-if IS_PRODUCTION:
-    # Production: HTTPS enabled, cross-site (Vercel frontend to Railway backend)
-    REFRESH_TOKEN_COOKIE_SECURE = True
-    REFRESH_TOKEN_COOKIE_SAMESITE = "none"
-else:
-    # Development: HTTP, same-site requests
-    REFRESH_TOKEN_COOKIE_SECURE = False
-    REFRESH_TOKEN_COOKIE_SAMESITE = "lax"
-
-print(
-    f"[COOKIES] Production={IS_PRODUCTION}, Secure={REFRESH_TOKEN_COOKIE_SECURE}, SameSite={REFRESH_TOKEN_COOKIE_SAMESITE}"
-)
 
 # Cooking goal expanded descriptions (for LLM prompts)
 COOKING_GOAL_DESCRIPTIONS = {

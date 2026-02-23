@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Response
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
@@ -7,8 +7,6 @@ from app.utils.auth import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    set_refresh_cookie,
-    clear_refresh_cookie,
 )
 from app.schemas import (
     LoginRequest,
@@ -20,7 +18,6 @@ from app.schemas import (
     MessageResponse,
 )
 from datetime import datetime, timezone
-from app.constants import REFRESH_TOKEN_COOKIE_NAME
 
 router = APIRouter()
 
@@ -28,9 +25,7 @@ router = APIRouter()
 @router.post(
     "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
-def register_user(
-    data: RegisterRequest, response: Response, db: Session = Depends(get_db)
-):
+def register_user(data: RegisterRequest, db: Session = Depends(get_db)):
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == data.email).first()
     if existing_user:
@@ -52,7 +47,6 @@ def register_user(
     db.refresh(user)
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
-    set_refresh_cookie(response, refresh_token)
     user_resp = UserResponse.model_validate(user)
     return RegisterResponse(
         success=True,
@@ -64,13 +58,12 @@ def register_user(
 
 
 @router.post("/login", response_model=TokenResponse)
-def login_user(data: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login_user(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))
-    set_refresh_cookie(response, refresh_token)
     user_resp = UserResponse.model_validate(user)
     return {
         "access_token": access_token,
@@ -81,12 +74,13 @@ def login_user(data: LoginRequest, response: Response, db: Session = Depends(get
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-def refresh_access_token(
-    request: Request, response: Response, db: Session = Depends(get_db)
-):
-    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
-    if not refresh_token:
+def refresh_access_token(request: Request, db: Session = Depends(get_db)):
+    # Get refresh_token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing refresh token")
+
+    refresh_token = auth_header[7:]  # Remove "Bearer " prefix
     payload = decode_token(refresh_token, expected_type="refresh")
     user_id = payload.get("user_id")
     if user_id is None:
@@ -96,7 +90,6 @@ def refresh_access_token(
         raise HTTPException(status_code=401, detail="User not found")
     access_token = create_access_token(str(user.id))
     new_refresh_token = create_refresh_token(str(user.id))
-    set_refresh_cookie(response, new_refresh_token)
     return {
         "access_token": access_token,
         "refresh_token": new_refresh_token,
@@ -105,6 +98,7 @@ def refresh_access_token(
 
 
 @router.post("/logout", response_model=MessageResponse)
-def logout_user(response: Response):
-    clear_refresh_cookie(response)
+def logout_user():
+    # With token-based auth, logout is client-side (delete tokens)
+    # Backend doesn't maintain session state
     return MessageResponse(message="Logged out")
