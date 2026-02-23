@@ -1,27 +1,47 @@
 from passlib.context import CryptContext
+import hashlib
 
-# Use bcrypt_sha256 which doesn't have the 72-byte limit
-# SHA256 hashes long passwords first, then bcrypt hashes the result
-pwd_context = CryptContext(
-    schemes=["bcrypt_sha256"],
-    deprecated="auto",
-    bcrypt_sha256__rounds=12,  # Good balance of security and speed
-)
+# Use bcrypt which is industry standard
+# We'll manually enforce the 72-byte limit by hashing long passwords first
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Bcrypt has a maximum password length of 72 bytes
+MAX_PASSWORD_BYTES = 72
 
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password for storage.
 
-    Uses bcrypt_sha256 which can handle passwords of any length.
-    The password is first hashed with SHA256, then bcrypt hashes the result.
-    This avoids bcrypt's 72-byte limitation while maintaining security.
+    Bcrypt has a 72-byte limit. We handle this by:
+    1. Check if password encoding is ≤72 bytes
+    2. If longer, SHA256 hash it first (standard approach)
+    3. Then bcrypt the result
+
+    This ensures we never pass >72 bytes to bcrypt.
     """
-    return pwd_context.hash(password)
+    password_bytes = password.encode("utf-8")
+
+    # If password is ≤72 bytes, hash directly
+    if len(password_bytes) <= MAX_PASSWORD_BYTES:
+        return pwd_context.hash(password)
+
+    # If >72 bytes, hash with SHA256 first, then bcrypt
+    # This is a standard workaround for bcrypt's limitation
+    sha256_hash = hashlib.sha256(password_bytes).hexdigest()
+    return pwd_context.hash(sha256_hash)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a stored hash.
 
-    Works with bcrypt_sha256 hashes which can verify any password length.
+    Must use the same logic as hash_password to handle >72 byte passwords.
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    password_bytes = plain_password.encode("utf-8")
+
+    # If password is ≤72 bytes, verify directly
+    if len(password_bytes) <= MAX_PASSWORD_BYTES:
+        return pwd_context.verify(plain_password, hashed_password)
+
+    # If >72 bytes, hash with SHA256 first, then verify
+    sha256_hash = hashlib.sha256(password_bytes).hexdigest()
+    return pwd_context.verify(sha256_hash, hashed_password)
