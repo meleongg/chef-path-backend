@@ -17,7 +17,10 @@ REFRESH_TOKEN_COOKIE_PATH = "/"
 # Cookie security settings - adapt based on environment
 # In production (Railway): use Secure=True and SameSite=None for cross-site cookies
 # In development (localhost): use Secure=False and SameSite=Lax
-IS_PRODUCTION = os.getenv("ENVIRONMENT", "").lower() == "production" or os.getenv("RAILWAY_ENVIRONMENT") is not None
+IS_PRODUCTION = (
+    os.getenv("ENVIRONMENT", "").lower() == "production"
+    or os.getenv("RAILWAY_ENVIRONMENT") is not None
+)
 
 if IS_PRODUCTION:
     # Production: HTTPS enabled, cross-site (Vercel frontend to Railway backend)
@@ -28,7 +31,9 @@ else:
     REFRESH_TOKEN_COOKIE_SECURE = False
     REFRESH_TOKEN_COOKIE_SAMESITE = "lax"
 
-print(f"[COOKIES] Production={IS_PRODUCTION}, Secure={REFRESH_TOKEN_COOKIE_SECURE}, SameSite={REFRESH_TOKEN_COOKIE_SAMESITE}")
+print(
+    f"[COOKIES] Production={IS_PRODUCTION}, Secure={REFRESH_TOKEN_COOKIE_SECURE}, SameSite={REFRESH_TOKEN_COOKIE_SAMESITE}"
+)
 
 # Cooking goal expanded descriptions (for LLM prompts)
 COOKING_GOAL_DESCRIPTIONS = {

@@ -1,31 +1,27 @@
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Bcrypt has a maximum password length of 72 bytes
-MAX_PASSWORD_LENGTH = 72
+# Use bcrypt_sha256 which doesn't have the 72-byte limit
+# SHA256 hashes long passwords first, then bcrypt hashes the result
+pwd_context = CryptContext(
+    schemes=["bcrypt_sha256"],
+    deprecated="auto",
+    bcrypt_sha256__rounds=12,  # Good balance of security and speed
+)
 
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password for storage.
 
-    Bcrypt has a 72-byte limit, so we truncate longer passwords.
-    This is safe because users with >72 byte passwords still get
-    a unique hash based on the first 72 bytes.
+    Uses bcrypt_sha256 which can handle passwords of any length.
+    The password is first hashed with SHA256, then bcrypt hashes the result.
+    This avoids bcrypt's 72-byte limitation while maintaining security.
     """
-    # Convert to bytes and truncate to 72 bytes, then back to string
-    password_bytes = password.encode("utf-8")[:MAX_PASSWORD_LENGTH]
-    truncated = password_bytes.decode("utf-8", errors="ignore")
-    return pwd_context.hash(truncated)
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plaintext password against a stored hash.
 
-    Must truncate the same way as hash_password
-    to ensure consistent comparison.
+    Works with bcrypt_sha256 hashes which can verify any password length.
     """
-    # Truncate the same way
-    password_bytes = plain_password.encode("utf-8")[:MAX_PASSWORD_LENGTH]
-    truncated = password_bytes.decode("utf-8", errors="ignore")
-    return pwd_context.verify(truncated, hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
