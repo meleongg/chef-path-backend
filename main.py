@@ -9,6 +9,7 @@ from app.agents.checkpoint_setup import initialize_postgres_saver
 from app.core.rate_limit import limiter
 from app.database import engine
 from sqlalchemy import text
+import os
 
 
 @asynccontextmanager
@@ -40,12 +41,23 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS
+# Allow all origins in development, or restrict to specific origins via environment variable
+cors_origins = os.getenv("CORS_ORIGINS", "*")
+if cors_origins == "*":
+    allow_origins = ["*"]
+else:
+    allow_origins = [origin.strip() for origin in cors_origins.split(",")]
+
+print(f"[CORS] Configured with origins: {allow_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 
