@@ -119,12 +119,14 @@ class RegisterResponse(BaseModel):
     success: bool
     message: str
     access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     user: Optional["UserResponse"] = None
 
 
 # Token response for login
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     user: UserResponse
 
@@ -133,6 +135,7 @@ class TokenResponse(BaseModel):
 
 class AccessTokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
 
 

@@ -58,6 +58,7 @@ def register_user(
         success=True,
         message="User registered successfully",
         access_token=access_token,
+        refresh_token=refresh_token,
         user=user_resp,
     )
 
@@ -71,7 +72,12 @@ def login_user(data: LoginRequest, response: Response, db: Session = Depends(get
     refresh_token = create_refresh_token(str(user.id))
     set_refresh_cookie(response, refresh_token)
     user_resp = UserResponse.model_validate(user)
-    return {"access_token": access_token, "token_type": "bearer", "user": user_resp}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": user_resp,
+    }
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
@@ -91,7 +97,11 @@ def refresh_access_token(
     access_token = create_access_token(str(user.id))
     new_refresh_token = create_refresh_token(str(user.id))
     set_refresh_cookie(response, new_refresh_token)
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.post("/logout", response_model=MessageResponse)
