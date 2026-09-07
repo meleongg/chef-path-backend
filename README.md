@@ -1,27 +1,44 @@
-# ChefPath Backend - Adaptive Cooking Mentor
+# Mise backend
 
-An intelligent FastAPI backend that delivers personalized cooking education through adaptive meal planning and real-time difficulty adjustment based on user feedback.
+FastAPI service for Mise, an AI-assisted meal-planning application. It owns
+authentication, user preferences, recipe data, weekly-plan state, progress, and
+the planner API consumed by the Next.js client.
 
-## Key Features
+## Architecture
 
-- **Adaptive Learning Engine**: Automatically adjusts recipe difficulty based on user feedback (too easy/just right/too hard)
-- **Progressive Content Unlocking**: Week-by-week meal plan unlocking system with completion tracking
-- **Intelligent Recipe Curation**: Fetches and filters recipes from TheMealDB API based on user preferences and skill level
-- **Real-time Progress Analytics**: Comprehensive user progress tracking and skill assessment
+- **API and persistence:** FastAPI, Pydantic, SQLAlchemy, Alembic, and PostgreSQL
+- **Planning:** LangGraph tools retrieve recipes through pgvector similarity search
+  plus SQL preference filters; the agent can generate and embed a recipe when
+  retrieval falls short
+- **Plan integrity:** ordered schedules, progress records, swap limits, and
+  cooldown exclusions keep plan and recommendation state consistent
+- **Reliability:** JWT auth, explicit CORS origins, per-IP and per-user AI rate
+  limits, moderation, Railway health checks, and pytest coverage
 
-## Technologies
-
-- **Backend Framework**: FastAPI (Python)
-- **Database**: SQLite with SQLAlchemy ORM
-- **Data Validation**: Pydantic
-- **External API**: TheMealDB - Recipe data source with 300+ recipes
-
-## Getting Started
+## Run locally
 
 ```bash
-./start.sh                           # Auto-setup and run
-# OR
-pip install -r requirements.txt     # Manual setup
-python manage_db.py reset           # Setup database with sample data
-uvicorn main:app --reload           # Start server
+cd mise-backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn main:app --reload
 ```
+
+Set `DATABASE_URL` and `SECRET_KEY` before starting. Adaptive planning requires
+PostgreSQL with the `pgvector` extension and `OPENAI_API_KEY`; SQLite is suitable
+only for lightweight development and tests. Set `CORS_ORIGINS` to the exact
+frontend origin outside local development.
+
+## Test
+
+```bash
+DATABASE_URL=sqlite:///:memory: OPENAI_API_KEY=test-key pytest -q
+```
+
+## Deployment
+
+Railway runs `uvicorn main:app` and verifies `/health`, which also checks database
+connectivity. Configure production secrets and database URLs in the deployment
+environment; never commit them.
